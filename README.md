@@ -86,6 +86,8 @@ Writes: `s05_asr_cleanup/cleaned_1.txt` and `s05_asr_cleanup/edits.jsonl`.
 #### `sruti s06-remove-nonlecture RUN_DIR [OPTIONS]`
 
 Stage `s06`. Detects and removes non-lecture segments (ads, chatter, unrelated fragments).
+It also removes short situational one-to-one corrections aimed at a specific participant
+when they do not contain generally transferable explanation for readers.
 Writes: `s06_remove_nonlecture/content_only.txt`, `removed_spans.jsonl`, and
 `removal_report.html` (sentence-level KEEP/REMOVE review).
 

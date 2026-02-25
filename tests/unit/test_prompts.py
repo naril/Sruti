@@ -62,3 +62,11 @@ def test_prompt_template_dir_missing_directory_fails(tmp_path: Path) -> None:
     missing_dir = tmp_path / "does-not-exist"
     with pytest.raises(FileNotFoundError):
         prompts.s05_cleanup_prompt("abc", template_dir=missing_dir)
+
+
+def test_s06_classification_prompt_covers_individual_corrections() -> None:
+    rendered = prompts.s06_classification_prompt("[1] example span")
+    assert rendered.startswith("Classify each span as KEEP or REMOVE.")
+    assert "situational coaching directed to a specific participant" in rendered
+    assert "If a span mixes individual correction and a generally transferable explanation, choose KEEP." in rendered
+    assert "individual_correction" in rendered
