@@ -14,6 +14,7 @@ def create_llm_client(settings: Settings) -> LlmClient:
     if settings.llm_provider is LlmProvider.OPENAI:
         return OpenAIClient(
             api_key_env=settings.openai_api_key_env,
+            api_key=settings.openai_api_key,
             base_url=settings.openai_base_url,
             timeout_seconds=settings.openai_timeout_seconds,
             max_retries=settings.openai_max_retries,

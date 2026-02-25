@@ -13,6 +13,7 @@ class OpenAIClient:
         self,
         *,
         api_key_env: str,
+        api_key: str,
         base_url: str,
         timeout_seconds: int,
         max_retries: int,
@@ -27,19 +28,25 @@ class OpenAIClient:
             return
 
         try:
-            from openai import OpenAI  # type: ignore[import-not-found]
+            from openai import OpenAI
         except ImportError as exc:  # pragma: no cover - exercised via tests
             raise DependencyMissingError(
                 "OpenAI provider requires the 'openai' package. Install it with: pip install openai"
             ) from exc
 
-        api_key = os.environ.get(api_key_env)
-        if not api_key:
+        api_key_env_value = os.environ.get(api_key_env)
+        resolved_api_key = api_key_env_value or api_key.strip()
+        if not resolved_api_key:
             raise ConfigurationError(
-                f"Missing API key in environment variable '{api_key_env}' for OpenAI provider."
+                f"Missing API key for OpenAI provider. Set environment variable '{api_key_env}' "
+                "or configure 'openai_api_key' in pipeline.toml."
             )
 
-        kwargs: dict[str, Any] = {"api_key": api_key, "timeout": timeout_seconds, "max_retries": 0}
+        kwargs: dict[str, Any] = {
+            "api_key": resolved_api_key,
+            "timeout": timeout_seconds,
+            "max_retries": 0,
+        }
         if base_url:
             kwargs["base_url"] = base_url
         self._client = OpenAI(**kwargs)

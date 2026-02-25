@@ -89,6 +89,8 @@ chunk_seconds = 30
 llm_provider = "local"
 s05_model = "llama3.1:8b"
 s07_model = "mistral:7b-instruct"
+openai_api_key_env = "OPENAI_API_KEY"
+openai_api_key = ""
 openai_model_s05 = "gpt-5-nano"
 openai_model_s07 = "gpt-5-mini"
 cost_cap_usd = 2.0
@@ -97,6 +99,10 @@ token_cap_output = 1000000
 ```
 
 CLI options have highest precedence over defaults.
+
+OpenAI API key resolution order:
+1. Environment variable named by `openai_api_key_env` (default `OPENAI_API_KEY`)
+2. `openai_api_key` from `pipeline.toml` (fallback)
 
 Progress output:
 

@@ -43,6 +43,7 @@ def test_openai_client_generate_parses_text_and_usage() -> None:
     sdk = _SdkClient([_Response("ok", input_tokens=12, output_tokens=8)])
     client = OpenAIClient(
         api_key_env="OPENAI_API_KEY",
+        api_key="",
         base_url="",
         timeout_seconds=30,
         max_retries=1,
@@ -59,6 +60,7 @@ def test_openai_client_retries_on_retryable_error() -> None:
     sdk = _SdkClient([retryable, _Response("ok")])
     client = OpenAIClient(
         api_key_env="OPENAI_API_KEY",
+        api_key="",
         base_url="",
         timeout_seconds=30,
         max_retries=2,
@@ -73,6 +75,7 @@ def test_openai_client_raises_after_retry_exhaustion() -> None:
     sdk = _SdkClient([Exception("timeout"), Exception("timeout")])
     client = OpenAIClient(
         api_key_env="OPENAI_API_KEY",
+        api_key="",
         base_url="",
         timeout_seconds=30,
         max_retries=1,
@@ -93,8 +96,49 @@ def test_openai_client_missing_api_key_raises(monkeypatch) -> None:
     with pytest.raises(ConfigurationError):
         OpenAIClient(
             api_key_env="MISSING_OPENAI_KEY",
+            api_key="",
             base_url="",
             timeout_seconds=30,
             max_retries=0,
             client=None,
         )
+
+
+def test_openai_client_uses_config_key_when_env_missing(monkeypatch) -> None:
+    monkeypatch.delenv("MISSING_OPENAI_KEY", raising=False)
+    captured: dict[str, object] = {}
+
+    class _FakeOpenAI:
+        def __init__(self, **kwargs) -> None:
+            captured.update(kwargs)
+
+    monkeypatch.setitem(__import__("sys").modules, "openai", types.SimpleNamespace(OpenAI=_FakeOpenAI))
+    _ = OpenAIClient(
+        api_key_env="MISSING_OPENAI_KEY",
+        api_key="config-key",
+        base_url="",
+        timeout_seconds=30,
+        max_retries=0,
+        client=None,
+    )
+    assert captured["api_key"] == "config-key"
+
+
+def test_openai_client_env_key_has_priority_over_config(monkeypatch) -> None:
+    monkeypatch.setenv("PREFERRED_KEY", "env-key")
+    captured: dict[str, object] = {}
+
+    class _FakeOpenAI:
+        def __init__(self, **kwargs) -> None:
+            captured.update(kwargs)
+
+    monkeypatch.setitem(__import__("sys").modules, "openai", types.SimpleNamespace(OpenAI=_FakeOpenAI))
+    _ = OpenAIClient(
+        api_key_env="PREFERRED_KEY",
+        api_key="config-key",
+        base_url="",
+        timeout_seconds=30,
+        max_retries=0,
+        client=None,
+    )
+    assert captured["api_key"] == "env-key"

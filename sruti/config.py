@@ -27,6 +27,7 @@ class Settings(BaseModel):
     s09_temperature: float = 0.2
     llm_provider: LlmProvider = LlmProvider.LOCAL
     openai_api_key_env: str = "OPENAI_API_KEY"
+    openai_api_key: str = ""
     openai_base_url: str = ""
     openai_timeout_seconds: int = 120
     openai_max_retries: int = 3

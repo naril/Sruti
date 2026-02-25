@@ -22,6 +22,7 @@ def test_llm_factory_builds_openai_client(monkeypatch) -> None:
     settings = Settings(
         llm_provider=LlmProvider.OPENAI,
         openai_api_key_env="OPENAI_API_KEY",
+        openai_api_key="config-key",
         openai_base_url="https://example.test",
         openai_timeout_seconds=30,
         openai_max_retries=4,
@@ -29,6 +30,7 @@ def test_llm_factory_builds_openai_client(monkeypatch) -> None:
     client = create_llm_client(settings)
     assert isinstance(client, FakeOpenAIClient)
     assert captured["api_key_env"] == "OPENAI_API_KEY"
+    assert captured["api_key"] == "config-key"
     assert captured["base_url"] == "https://example.test"
     assert captured["timeout_seconds"] == 30
     assert captured["max_retries"] == 4
