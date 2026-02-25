@@ -74,6 +74,7 @@ class S05AsrCleanupUseCase:
 
         try:
             runtime.start(manifest)
+            manifest.tool_versions["ollama_model"] = context.settings.s05_model
             source_text = input_path.read_text(encoding="utf-8")
             chunks = chunk_text(source_text, max_chars=6000)
             cleaned_chunks: list[str] = []
@@ -104,6 +105,8 @@ class S05AsrCleanupUseCase:
                         "model": context.settings.s05_model,
                         "temperature": context.settings.s05_temperature,
                         "prompt_hash": prompt_hash,
+                        "prompt": prompt,
+                        "response": response,
                         "input_chars": len(chunk),
                         "output_chars": len(response),
                     }

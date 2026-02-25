@@ -82,6 +82,7 @@ class LlmTextTransformUseCase:
 
         try:
             runtime.start(manifest)
+            manifest.tool_versions["ollama_model"] = model
             source_text = input_path.read_text(encoding="utf-8")
             chunks = chunk_text(source_text, max_chars=self.chunk_max_chars)
             output_chunks: list[str] = []
@@ -102,6 +103,8 @@ class LlmTextTransformUseCase:
                         "model": model,
                         "temperature": temperature,
                         "prompt_hash": prompt_hash,
+                        "prompt": prompt,
+                        "response": response,
                         "input_chars": len(chunk),
                         "output_chars": len(response),
                     }

@@ -87,6 +87,7 @@ class S06RemoveNonLectureUseCase:
 
         try:
             runtime.start(manifest)
+            manifest.tool_versions["ollama_model"] = context.settings.s06_model
             source_text = input_path.read_text(encoding="utf-8")
             spans = self._to_spans(source_text)
             decisions, call_rows = self._classify_spans(spans, context)
@@ -169,6 +170,8 @@ class S06RemoveNonLectureUseCase:
                     "model": context.settings.s06_model,
                     "temperature": context.settings.s06_temperature,
                     "prompt_hash": prompt_hash,
+                    "prompt": active_prompt,
+                    "response": response,
                     "input_chars": len(active_prompt),
                     "output_chars": len(response),
                 }
