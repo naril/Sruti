@@ -12,9 +12,10 @@ def chunk_text(text: str, *, max_chars: int) -> list[str]:
     current: list[str] = []
     current_size = 0
     for para in paragraphs:
-        if not para:
+        normalized = para.strip()
+        if not normalized:
             continue
-        for part in _split_oversize_paragraph(para, max_chars=max_chars):
+        for part in _split_oversize_paragraph(normalized, max_chars=max_chars):
             size = len(part) + (2 if current else 0)
             if current and current_size + size > max_chars:
                 chunks.append("\n\n".join(current))
@@ -34,7 +35,7 @@ def _split_oversize_paragraph(paragraph: str, *, max_chars: int) -> list[str]:
 
     pieces: list[str] = []
     current = ""
-    for word in paragraph.split(" "):
+    for word in paragraph.split():
         if not current:
             if len(word) <= max_chars:
                 current = word

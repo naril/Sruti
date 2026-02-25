@@ -41,7 +41,6 @@ class LlmTextTransformUseCase:
         require_executable(context.settings.ollama_bin)
         model = getattr(context.settings, self.model_setting_attr)
         temperature = getattr(context.settings, self.temperature_setting_attr)
-        self._ollama.ensure_model_available(model)
 
         stage_dir = manifest_util.stage_dir_for(context.run_dir, self.stage_id.value)
         input_path = (
@@ -84,6 +83,10 @@ class LlmTextTransformUseCase:
             manifest.tool_versions["ollama_model"] = model
             source_text = input_path.read_text(encoding="utf-8")
             chunks = chunk_text(source_text, max_chars=self.chunk_max_chars)
+
+            if chunks:
+                self._ollama.ensure_model_available(model)
+
             output_chunks: list[str] = []
             call_rows: list[dict[str, Any]] = []
             for idx, chunk in enumerate(chunks, start=1):

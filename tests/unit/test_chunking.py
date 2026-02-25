@@ -18,3 +18,7 @@ def test_chunk_text_splits_oversized_paragraph() -> None:
     chunks = chunk_text(text.strip(), max_chars=50)
     assert chunks
     assert all(len(chunk) <= 50 for chunk in chunks)
+
+
+def test_chunk_text_ignores_whitespace_only_paragraphs() -> None:
+    assert chunk_text("   \n\n\t", max_chars=10) == []

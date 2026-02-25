@@ -10,6 +10,9 @@ from sruti.util import manifest as manifest_util
 
 
 class FakeOllama:
+    def __init__(self) -> None:
+        self.generate_calls = 0
+
     def ensure_model_available(self, model: str) -> None:
         _ = model
 
@@ -22,6 +25,7 @@ class FakeOllama:
         timeout_seconds: int | None = None,
     ) -> str:
         _ = (model, prompt, temperature, timeout_seconds)
+        self.generate_calls += 1
         return "cleaned"
 
 
@@ -60,3 +64,19 @@ def test_s05_cleanup_dry_run(monkeypatch, tmp_path: Path) -> None:
     )
     result = use_case.run(_ctx(tmp_path, dry_run=True))
     assert result.status == StageStatus.DRY_RUN
+
+
+def test_s05_cleanup_skips_llm_for_empty_input(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr("sruti.application.stages.s05_asr_cleanup_uc.require_executable", lambda _: None)
+    s04_dir = manifest_util.stage_dir_for(tmp_path, "s04")
+    s04_dir.mkdir(parents=True, exist_ok=True)
+    (s04_dir / "merged_raw.txt").write_text("  \n\n\t", encoding="utf-8")
+    ollama = FakeOllama()
+    use_case = S05AsrCleanupUseCase(
+        ollama=ollama,
+        manifest_store=FileSystemManifestStore(),
+    )
+    result = use_case.run(_ctx(tmp_path))
+    assert result.status == StageStatus.SUCCESS
+    assert ollama.generate_calls == 0
+    assert (tmp_path / "s05_asr_cleanup" / "cleaned_1.txt").read_text(encoding="utf-8") == ""

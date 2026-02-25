@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, field_validator
 
 from sruti.application.context import StageContext
 from sruti.application.stage_runner import StageRuntime
@@ -22,11 +22,21 @@ from sruti.util.system import require_executable, require_file
 
 class SpanDecision(BaseModel):
     span_id: int
-    action: str
+    action: Literal["KEEP", "REMOVE"]
     label: str | None = None
     reason: str | None = None
 
     model_config = {"extra": "forbid"}
+
+    @field_validator("action", mode="before")
+    @classmethod
+    def _normalize_action(cls, value: Any) -> str:
+        if not isinstance(value, str):
+            raise ValueError("action must be a string")
+        normalized = value.strip().upper()
+        if normalized not in {"KEEP", "REMOVE"}:
+            raise ValueError("action must be KEEP or REMOVE")
+        return normalized
 
 
 class S06RemoveNonLectureUseCase:
@@ -198,10 +208,6 @@ class S06RemoveNonLectureUseCase:
                 decision = SpanDecision.model_validate(row)
             except ValidationError as exc:
                 raise InvalidLlmJsonError(f"Invalid decision object: {row}") from exc
-            normalized_action = decision.action.strip().upper()
-            if normalized_action not in {"KEEP", "REMOVE"}:
-                raise InvalidLlmJsonError(f"Invalid action value: {decision.action}")
-            decision.action = normalized_action
             out.append(decision)
         return out
 

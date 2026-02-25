@@ -34,7 +34,6 @@ class S05AsrCleanupUseCase:
 
     def run(self, context: StageContext) -> StageResult:
         require_executable(context.settings.ollama_bin)
-        self._ollama.ensure_model_available(context.settings.s05_model)
 
         stage_dir = manifest_util.stage_dir_for(context.run_dir, StageId.S05.value)
         s04_dir = manifest_util.stage_dir_for(context.run_dir, StageId.S04.value)
@@ -76,6 +75,10 @@ class S05AsrCleanupUseCase:
             manifest.tool_versions["ollama_model"] = context.settings.s05_model
             source_text = input_path.read_text(encoding="utf-8")
             chunks = chunk_text(source_text, max_chars=6000)
+
+            if chunks:
+                self._ollama.ensure_model_available(context.settings.s05_model)
+
             cleaned_chunks: list[str] = []
             edit_rows: list[dict[str, Any]] = []
             call_rows: list[dict[str, Any]] = []
@@ -121,7 +124,9 @@ class S05AsrCleanupUseCase:
                     )
                 )
 
-            final_text = "\n\n".join(cleaned_chunks).strip() + "\n"
+            final_text = "\n\n".join(cleaned_chunks).strip()
+            if final_text:
+                final_text += "\n"
             atomic_write_text(cleaned_path, final_text)
             write_jsonl(edits_path, edit_rows)
             write_jsonl(llm_log_path, call_rows)
