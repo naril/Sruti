@@ -1,9 +1,0 @@
-Improve Czech readability and style without changing meaning.
-Rules:
-- Preserve terminology.
-- No added facts.
-- No summarization.
-Return edited Czech text only.
-
-Input:
-{{text}}

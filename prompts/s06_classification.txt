@@ -1,9 +1,0 @@
-Classify each span as KEEP or REMOVE.
-REMOVE only non-lecture material like audience chatter, technical glitches, or logistics.
-Do not rewrite any text.
-Return strict JSON array with objects:
-{"span_id": <int>, "action": "KEEP|REMOVE", "label": "<category>", "reason": "<short>"}
-No markdown.
-
-Spans:
-{{span_lines}}

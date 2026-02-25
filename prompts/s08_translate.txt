@@ -1,9 +1,0 @@
-Translate English to Czech faithfully.
-Rules:
-- Preserve structure and terminology.
-- No added information.
-- No summarization.
-Return Czech text only.
-
-Input:
-{{text}}
