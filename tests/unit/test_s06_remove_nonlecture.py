@@ -66,6 +66,22 @@ class FakeOllamaLowercaseAction:
         return '[{"span_id": 1, "action": "remove", "label": "AUDIENCE"}]'
 
 
+class FakeOllamaMustNotCall:
+    def ensure_model_available(self, model: str) -> None:
+        raise AssertionError("ensure_model_available should not be called for empty input")
+
+    def generate(
+        self,
+        *,
+        model: str,
+        prompt: str,
+        temperature: float,
+        timeout_seconds: int | None = None,
+    ) -> str:
+        _ = (model, prompt, temperature, timeout_seconds)
+        raise AssertionError("generate should not be called for empty input")
+
+
 def _ctx(run_dir: Path) -> StageContext:
     return StageContext.build(
         run_dir=run_dir,
@@ -124,3 +140,19 @@ def test_s06_remove_nonlecture_normalizes_action_case(monkeypatch, tmp_path: Pat
     assert result.status == StageStatus.SUCCESS
     final_text = (tmp_path / "s06_remove_nonlecture" / "content_only.txt").read_text(encoding="utf-8")
     assert "Audience question" not in final_text
+
+
+def test_s06_remove_nonlecture_empty_input_short_circuits(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        "sruti.application.stages.s06_remove_nonlecture_uc.require_executable", lambda _: None
+    )
+    s05_dir = manifest_util.stage_dir_for(tmp_path, "s05")
+    s05_dir.mkdir(parents=True, exist_ok=True)
+    (s05_dir / "cleaned_1.txt").write_text(" \n\n\t", encoding="utf-8")
+    use_case = S06RemoveNonLectureUseCase(
+        ollama=FakeOllamaMustNotCall(),
+        manifest_store=FileSystemManifestStore(),
+    )
+    result = use_case.run(_ctx(tmp_path))
+    assert result.status == StageStatus.SUCCESS
+    assert (tmp_path / "s06_remove_nonlecture" / "content_only.txt").read_text(encoding="utf-8") == ""

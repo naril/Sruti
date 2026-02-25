@@ -55,7 +55,7 @@ class S02ChunkUseCase:
             context=context,
             stage_id=StageId.S02,
             stage_dir=stage_dir,
-            expected_outputs=[chunks_json_path],
+            expected_outputs=[chunks_json_path, chunks_dir],
             manifest_store=self._manifest_store,
             ask_user=self._ask_user,
         )

@@ -47,3 +47,56 @@ def test_cli_run_dispatches_stages_in_order(monkeypatch, tmp_path: Path) -> None
     )
     assert result.exit_code == 0, result.stdout
     assert calls == ["s01", "s02", "s03"]
+
+
+def test_cli_run_uses_pipeline_defaults_for_optional_stage_params(
+    monkeypatch, tmp_path: Path
+) -> None:
+    observed: dict[str, object] = {}
+
+    def fake_s02_run_stage(**kwargs):
+        observed["seconds"] = kwargs["seconds"]
+        context = kwargs["context"]
+        stage_dir = context.run_dir / "s02_fake"
+        stage_dir.mkdir(parents=True, exist_ok=True)
+        return StageResult(stage=StageId.S02, status=StageStatus.SUCCESS, stage_dir=stage_dir, outputs=[])
+
+    def fake_s03_run_stage(**kwargs):
+        observed["model_path"] = kwargs["model_path"]
+        context = kwargs["context"]
+        stage_dir = context.run_dir / "s03_fake"
+        stage_dir.mkdir(parents=True, exist_ok=True)
+        return StageResult(stage=StageId.S03, status=StageStatus.SUCCESS, stage_dir=stage_dir, outputs=[])
+
+    monkeypatch.setattr("sruti.cli.s02_chunk.run_stage", fake_s02_run_stage)
+    monkeypatch.setattr("sruti.cli.s03_asr_whispercli.run_stage", fake_s03_run_stage)
+
+    run_dir = tmp_path / "run2"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "pipeline.toml").write_text(
+        """
+[sruti]
+chunk_seconds = 17
+default_whisper_model_path = "models/custom.bin"
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            str(run_dir),
+            "--from",
+            "s02",
+            "--to",
+            "s03",
+            "--on-exists",
+            "overwrite",
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    assert observed["seconds"] == 17
+    assert observed["model_path"] == Path("models/custom.bin")

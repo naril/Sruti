@@ -69,19 +69,25 @@ def _run_single_stage(
     stage_id: StageId,
     context: StageContext,
     in_path: Path | None,
-    seconds: int,
-    model_path: Path,
+    seconds: int | None,
+    model_path: Path | None,
 ) -> StageResult:
     if stage_id is StageId.S01:
         if in_path is None:
             raise typer.BadParameter("--in is required when running s01.")
         return s01_normalize.run_stage(context=context, input_audio=in_path, ask_user=_ask_user)
     if stage_id is StageId.S02:
-        return s02_chunk.run_stage(context=context, seconds=seconds, ask_user=_ask_user)
+        effective_seconds = seconds if seconds is not None else context.settings.chunk_seconds
+        return s02_chunk.run_stage(context=context, seconds=effective_seconds, ask_user=_ask_user)
     if stage_id is StageId.S03:
+        effective_model_path = (
+            model_path
+            if model_path is not None
+            else context.settings.default_whisper_model_path
+        )
         return s03_asr_whispercli.run_stage(
             context=context,
-            model_path=model_path,
+            model_path=effective_model_path,
             ask_user=_ask_user,
         )
     if stage_id is StageId.S04:
@@ -105,8 +111,8 @@ def run_pipeline(
     in_path: Path | None = typer.Option(None, "--in"),
     source_stage: StageId = typer.Option(StageId.S01, "--from"),
     target_stage: StageId = typer.Option(StageId.S09, "--to"),
-    seconds: int = typer.Option(30, "--seconds"),
-    model_path: Path = typer.Option(Path("./models/ggml-large-v3.bin"), "--model-path"),
+    seconds: int | None = typer.Option(None, "--seconds"),
+    model_path: Path | None = typer.Option(None, "--model-path"),
     on_exists: OnExistsMode = typer.Option(OnExistsMode.ASK, "--on-exists"),
     dry_run: bool = typer.Option(False, "--dry-run"),
     force: bool = typer.Option(False, "--force"),
@@ -159,7 +165,7 @@ def run_s01_normalize(
 @app.command("s02-chunk")
 def run_s02_chunk(
     run_dir: Path = typer.Argument(...),
-    seconds: int = typer.Option(30, "--seconds"),
+    seconds: int | None = typer.Option(None, "--seconds"),
     on_exists: OnExistsMode = typer.Option(OnExistsMode.ASK, "--on-exists"),
     dry_run: bool = typer.Option(False, "--dry-run"),
     force: bool = typer.Option(False, "--force"),
@@ -173,7 +179,8 @@ def run_s02_chunk(
         verbose=verbose,
     )
     try:
-        result = s02_chunk.run_stage(context=context, seconds=seconds, ask_user=_ask_user)
+        effective_seconds = seconds if seconds is not None else context.settings.chunk_seconds
+        result = s02_chunk.run_stage(context=context, seconds=effective_seconds, ask_user=_ask_user)
         _print_result(result)
     except Exception as exc:
         _handle_failure(exc)
@@ -182,7 +189,7 @@ def run_s02_chunk(
 @app.command("s03-asr")
 def run_s03_asr(
     run_dir: Path = typer.Argument(...),
-    model_path: Path = typer.Option(Path("./models/ggml-large-v3.bin"), "--model-path"),
+    model_path: Path | None = typer.Option(None, "--model-path"),
     on_exists: OnExistsMode = typer.Option(OnExistsMode.ASK, "--on-exists"),
     dry_run: bool = typer.Option(False, "--dry-run"),
     force: bool = typer.Option(False, "--force"),
@@ -196,9 +203,14 @@ def run_s03_asr(
         verbose=verbose,
     )
     try:
+        effective_model_path = (
+            model_path
+            if model_path is not None
+            else context.settings.default_whisper_model_path
+        )
         result = s03_asr_whispercli.run_stage(
             context=context,
-            model_path=model_path,
+            model_path=effective_model_path,
             ask_user=_ask_user,
         )
         _print_result(result)

@@ -55,7 +55,6 @@ class S06RemoveNonLectureUseCase:
 
     def run(self, context: StageContext) -> StageResult:
         require_executable(context.settings.ollama_bin)
-        self._ollama.ensure_model_available(context.settings.s06_model)
 
         stage_dir = manifest_util.stage_dir_for(context.run_dir, StageId.S06.value)
         s05_dir = manifest_util.stage_dir_for(context.run_dir, StageId.S05.value)
@@ -99,6 +98,23 @@ class S06RemoveNonLectureUseCase:
             manifest.tool_versions["ollama_model"] = context.settings.s06_model
             source_text = input_path.read_text(encoding="utf-8")
             spans = self._to_spans(source_text)
+            if not spans:
+                atomic_write_text(content_only_path, "")
+                write_jsonl(removed_spans_path, [])
+                write_jsonl(llm_log_path, [])
+                atomic_write_text(decisions_path, self._decisions_json([]))
+                manifest.inputs = [manifest_util.artifact_for(input_path)]
+                return runtime.mark_success(
+                    manifest,
+                    output_paths=[
+                        content_only_path,
+                        removed_spans_path,
+                        llm_log_path,
+                        decisions_path,
+                    ],
+                )
+
+            self._ollama.ensure_model_available(context.settings.s06_model)
             decisions, call_rows = self._classify_spans(spans, context)
             remove_ids = {item.span_id for item in decisions if item.action == "REMOVE"}
 

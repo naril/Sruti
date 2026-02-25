@@ -78,3 +78,20 @@ def test_s02_chunk_skip_when_exists(monkeypatch, tmp_path: Path) -> None:
     )
     result = use_case.run(_ctx(tmp_path, mode=OnExistsMode.SKIP))
     assert result.status == StageStatus.SKIPPED
+
+
+def test_s02_chunk_skip_when_chunk_directory_exists(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr("sruti.application.stages.s02_chunk_uc.require_executable", lambda _: None)
+    s01_dir = manifest_util.stage_dir_for(tmp_path, "s01")
+    s01_dir.mkdir(parents=True, exist_ok=True)
+    (s01_dir / "normalized.wav").write_bytes(b"normalized")
+    chunks_dir = manifest_util.stage_dir_for(tmp_path, "s02") / "chunks"
+    chunks_dir.mkdir(parents=True, exist_ok=True)
+    (chunks_dir / "0001.wav").write_bytes(b"partial")
+    use_case = S02ChunkUseCase(
+        seconds=30,
+        ffmpeg=FakeFfmpeg(),
+        manifest_store=FileSystemManifestStore(),
+    )
+    result = use_case.run(_ctx(tmp_path, mode=OnExistsMode.SKIP))
+    assert result.status == StageStatus.SKIPPED
