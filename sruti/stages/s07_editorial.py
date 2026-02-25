@@ -6,7 +6,7 @@ from sruti.application.context import StageContext
 from sruti.application.stages.s07_editorial_uc import S07EditorialUseCase
 from sruti.domain.models import StageResult
 from sruti.infrastructure.fs_repository import FileSystemManifestStore
-from sruti.infrastructure.llm_ollama import OllamaClient
+from sruti.infrastructure.llm_factory import create_llm_client
 
 
 def run_stage(
@@ -15,7 +15,7 @@ def run_stage(
     ask_user: Callable[[str], bool] | None = None,
 ) -> StageResult:
     use_case = S07EditorialUseCase(
-        ollama=OllamaClient(),
+        llm_client=create_llm_client(context.settings),
         manifest_store=FileSystemManifestStore(),
         ask_user=ask_user,
     )

@@ -32,6 +32,14 @@ class LlmCallRecord(BaseModel):
     model_config = {"extra": "forbid"}
 
 
+class LlmGenerateResult(BaseModel):
+    text: str
+    usage_input_tokens: int | None = None
+    usage_output_tokens: int | None = None
+
+    model_config = {"extra": "forbid"}
+
+
 class StageManifest(BaseModel):
     stage: StageId
     status: StageStatus

@@ -5,11 +5,11 @@ from typing import Any
 
 from sruti.application.context import StageContext
 from sruti.application.stage_runner import StageRuntime
-from sruti.domain.enums import StageId
+from sruti.domain.enums import LlmProvider, StageId
 from sruti.domain.models import LlmCallRecord, StageResult
-from sruti.domain.ports import ManifestStore
-from sruti.infrastructure.llm_ollama import OllamaClient
+from sruti.domain.ports import LlmClient, ManifestStore
 from sruti.llm.chunking import chunk_text
+from sruti.llm.runtime import StageCostGuardrails, resolve_llm_model
 from sruti.util import manifest as manifest_util
 from sruti.util.hashes import sha256_text
 from sruti.util.io import atomic_write_text, write_jsonl
@@ -29,17 +29,22 @@ class LlmTextTransformUseCase:
     def __init__(
         self,
         *,
-        ollama: OllamaClient,
+        llm_client: LlmClient,
         manifest_store: ManifestStore,
         ask_user: Callable[[str], bool] | None = None,
     ) -> None:
-        self._ollama = ollama
+        self._llm_client = llm_client
         self._manifest_store = manifest_store
         self._ask_user = ask_user
 
     def run(self, context: StageContext) -> StageResult:
-        require_executable(context.settings.ollama_bin)
-        model = getattr(context.settings, self.model_setting_attr)
+        if context.settings.llm_provider is LlmProvider.LOCAL:
+            require_executable(context.settings.ollama_bin)
+        model = resolve_llm_model(
+            context.settings,
+            stage_id=self.stage_id,
+            local_model_attr=self.model_setting_attr,
+        )
         temperature = getattr(context.settings, self.temperature_setting_attr)
 
         stage_dir = manifest_util.stage_dir_for(context.run_dir, self.stage_id.value)
@@ -52,6 +57,7 @@ class LlmTextTransformUseCase:
         llm_log_path = stage_dir / "logs" / "model_calls.jsonl"
         inputs_signature = manifest_util.inputs_signature([input_path])
         params: dict[str, object] = {
+            "llm_provider": context.settings.llm_provider.value,
             "model": model,
             "temperature": temperature,
             "chunk_max_chars": self.chunk_max_chars,
@@ -80,28 +86,59 @@ class LlmTextTransformUseCase:
 
         try:
             runtime.start(manifest)
-            manifest.tool_versions["ollama_model"] = model
+            manifest.tool_versions["llm_provider"] = self._llm_client.provider_name()
+            manifest.tool_versions["llm_model"] = model
             source_text = input_path.read_text(encoding="utf-8")
             chunks = chunk_text(source_text, max_chars=self.chunk_max_chars)
+            prompts = [self.prompt_builder(chunk) for chunk in chunks]
+            guardrails = StageCostGuardrails(
+                settings=context.settings,
+                stage_id=self.stage_id,
+                provider=context.settings.llm_provider,
+                model=model,
+            )
+            preflight = guardrails.preflight(prompts)
+            if prompts:
+                context.emit_progress(
+                    f"[{self.stage_id.value}] preflight tokens in/out: "
+                    f"{preflight['estimated_input_tokens']}/{preflight['estimated_output_tokens']}, "
+                    f"est. cost ${preflight['estimated_cost_usd']}",
+                    verbose_only=True,
+                )
 
             if chunks:
-                self._ollama.ensure_model_available(model)
+                self._llm_client.ensure_model_available(model)
 
             output_chunks: list[str] = []
             call_rows: list[dict[str, Any]] = []
+            total_chunks = len(chunks)
             for idx, chunk in enumerate(chunks, start=1):
-                prompt = self.prompt_builder(chunk)
+                prompt = prompts[idx - 1]
                 prompt_hash = sha256_text(prompt)
-                response = self._ollama.generate(
+                context.emit_progress(
+                    f"[{self.stage_id.value}] llm chunk {idx}/{total_chunks}",
+                    verbose_only=True,
+                )
+                guardrails.before_call()
+                response_obj = self._llm_client.generate(
                     model=model,
                     prompt=prompt,
                     temperature=temperature,
                     timeout_seconds=context.settings.stage_timeout_seconds,
-                ).strip()
+                )
+                response = response_obj.text.strip()
+                est_input_tokens, est_output_tokens = guardrails.estimated_tokens_for_prompt(prompt)
+                metrics = guardrails.record_call(
+                    estimated_input_tokens=est_input_tokens,
+                    estimated_output_tokens=est_output_tokens,
+                    usage_input_tokens=response_obj.usage_input_tokens,
+                    usage_output_tokens=response_obj.usage_output_tokens,
+                )
                 output_chunks.append(response)
                 call_rows.append(
                     {
                         "chunk_id": idx,
+                        "provider": self._llm_client.provider_name(),
                         "model": model,
                         "temperature": temperature,
                         "prompt_hash": prompt_hash,
@@ -109,6 +146,10 @@ class LlmTextTransformUseCase:
                         "response": response,
                         "input_chars": len(chunk),
                         "output_chars": len(response),
+                        "usage_input_tokens": metrics.input_tokens,
+                        "usage_output_tokens": metrics.output_tokens,
+                        "estimated_cost_usd": metrics.estimated_cost_usd,
+                        "cumulative_cost_usd": metrics.cumulative_cost_usd,
                     }
                 )
                 manifest.llm_calls.append(

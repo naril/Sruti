@@ -5,6 +5,7 @@ from pathlib import Path
 from sruti.application.context import StageContext
 from sruti.application.stages.s09_translate_edit_uc import S09TranslateEditUseCase
 from sruti.domain.enums import OnExistsMode, StageStatus
+from sruti.domain.models import LlmGenerateResult
 from sruti.infrastructure.fs_repository import FileSystemManifestStore
 from sruti.util import manifest as manifest_util
 
@@ -13,6 +14,9 @@ class FakeOllama:
     def ensure_model_available(self, model: str) -> None:
         _ = model
 
+    def provider_name(self) -> str:
+        return "local"
+
     def generate(
         self,
         *,
@@ -20,9 +24,9 @@ class FakeOllama:
         prompt: str,
         temperature: float,
         timeout_seconds: int | None = None,
-    ) -> str:
+    ) -> LlmGenerateResult:
         _ = (model, prompt, temperature, timeout_seconds)
-        return "finalni cs"
+        return LlmGenerateResult(text="finalni cs")
 
 
 def _ctx(run_dir: Path) -> StageContext:
@@ -41,7 +45,7 @@ def test_s09_translate_edit_happy_path(monkeypatch, tmp_path: Path) -> None:
     s08_dir.mkdir(parents=True, exist_ok=True)
     (s08_dir / "translated_faithful_cs.txt").write_text("preklad", encoding="utf-8")
     use_case = S09TranslateEditUseCase(
-        ollama=FakeOllama(),
+        llm_client=FakeOllama(),
         manifest_store=FileSystemManifestStore(),
     )
     result = use_case.run(_ctx(tmp_path))

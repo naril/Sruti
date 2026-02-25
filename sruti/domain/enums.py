@@ -29,3 +29,8 @@ class OnExistsMode(str, Enum):
     SKIP = "skip"
     OVERWRITE = "overwrite"
     FAIL = "fail"
+
+
+class LlmProvider(str, Enum):
+    LOCAL = "local"
+    OPENAI = "openai"

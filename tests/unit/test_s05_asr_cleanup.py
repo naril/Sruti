@@ -5,6 +5,7 @@ from pathlib import Path
 from sruti.application.context import StageContext
 from sruti.application.stages.s05_asr_cleanup_uc import S05AsrCleanupUseCase
 from sruti.domain.enums import OnExistsMode, StageStatus
+from sruti.domain.models import LlmGenerateResult
 from sruti.infrastructure.fs_repository import FileSystemManifestStore
 from sruti.util import manifest as manifest_util
 
@@ -16,6 +17,9 @@ class FakeOllama:
     def ensure_model_available(self, model: str) -> None:
         _ = model
 
+    def provider_name(self) -> str:
+        return "local"
+
     def generate(
         self,
         *,
@@ -23,10 +27,10 @@ class FakeOllama:
         prompt: str,
         temperature: float,
         timeout_seconds: int | None = None,
-    ) -> str:
+    ) -> LlmGenerateResult:
         _ = (model, prompt, temperature, timeout_seconds)
         self.generate_calls += 1
-        return "cleaned"
+        return LlmGenerateResult(text="cleaned")
 
 
 def _ctx(run_dir: Path, *, dry_run: bool = False) -> StageContext:
@@ -45,7 +49,7 @@ def test_s05_cleanup_happy_path(monkeypatch, tmp_path: Path) -> None:
     s04_dir.mkdir(parents=True, exist_ok=True)
     (s04_dir / "merged_raw.txt").write_text("hello world", encoding="utf-8")
     use_case = S05AsrCleanupUseCase(
-        ollama=FakeOllama(),
+        llm_client=FakeOllama(),
         manifest_store=FileSystemManifestStore(),
     )
     result = use_case.run(_ctx(tmp_path))
@@ -59,7 +63,7 @@ def test_s05_cleanup_dry_run(monkeypatch, tmp_path: Path) -> None:
     s04_dir.mkdir(parents=True, exist_ok=True)
     (s04_dir / "merged_raw.txt").write_text("hello world", encoding="utf-8")
     use_case = S05AsrCleanupUseCase(
-        ollama=FakeOllama(),
+        llm_client=FakeOllama(),
         manifest_store=FileSystemManifestStore(),
     )
     result = use_case.run(_ctx(tmp_path, dry_run=True))
@@ -73,7 +77,7 @@ def test_s05_cleanup_skips_llm_for_empty_input(monkeypatch, tmp_path: Path) -> N
     (s04_dir / "merged_raw.txt").write_text("  \n\n\t", encoding="utf-8")
     ollama = FakeOllama()
     use_case = S05AsrCleanupUseCase(
-        ollama=ollama,
+        llm_client=ollama,
         manifest_store=FileSystemManifestStore(),
     )
     result = use_case.run(_ctx(tmp_path))

@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Protocol
 
 from sruti.application.context import StageContext
-from sruti.domain.models import StageManifest, StageResult
+from sruti.domain.models import LlmGenerateResult, StageManifest, StageResult
 
 
 class StageUseCase(Protocol):
@@ -28,6 +28,12 @@ class ShellRunner(Protocol):
 
 
 class LlmClient(Protocol):
+    def provider_name(self) -> str:
+        ...
+
+    def ensure_model_available(self, model: str) -> None:
+        ...
+
     def generate(
         self,
         *,
@@ -35,5 +41,5 @@ class LlmClient(Protocol):
         prompt: str,
         temperature: float,
         timeout_seconds: int | None = None,
-    ) -> str:
+    ) -> LlmGenerateResult:
         ...

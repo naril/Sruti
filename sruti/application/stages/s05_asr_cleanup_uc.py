@@ -6,12 +6,12 @@ from typing import Any
 
 from sruti.application.context import StageContext
 from sruti.application.stage_runner import StageRuntime
-from sruti.domain.enums import StageId
+from sruti.domain.enums import LlmProvider, StageId
 from sruti.domain.models import LlmCallRecord, StageResult
-from sruti.domain.ports import ManifestStore
-from sruti.infrastructure.llm_ollama import OllamaClient
+from sruti.domain.ports import LlmClient, ManifestStore
 from sruti.llm.chunking import chunk_text
 from sruti.llm.prompts import s05_cleanup_prompt
+from sruti.llm.runtime import StageCostGuardrails, resolve_llm_model
 from sruti.util import manifest as manifest_util
 from sruti.util.hashes import sha256_text
 from sruti.util.io import atomic_write_text, write_jsonl
@@ -24,16 +24,22 @@ class S05AsrCleanupUseCase:
     def __init__(
         self,
         *,
-        ollama: OllamaClient,
+        llm_client: LlmClient,
         manifest_store: ManifestStore,
         ask_user: Callable[[str], bool] | None = None,
     ) -> None:
-        self._ollama = ollama
+        self._llm_client = llm_client
         self._manifest_store = manifest_store
         self._ask_user = ask_user
 
     def run(self, context: StageContext) -> StageResult:
-        require_executable(context.settings.ollama_bin)
+        if context.settings.llm_provider is LlmProvider.LOCAL:
+            require_executable(context.settings.ollama_bin)
+        model = resolve_llm_model(
+            context.settings,
+            stage_id=StageId.S05,
+            local_model_attr="s05_model",
+        )
 
         stage_dir = manifest_util.stage_dir_for(context.run_dir, StageId.S05.value)
         s04_dir = manifest_util.stage_dir_for(context.run_dir, StageId.S04.value)
@@ -45,7 +51,8 @@ class S05AsrCleanupUseCase:
         llm_log_path = stage_dir / "logs" / "model_calls.jsonl"
         inputs_signature = manifest_util.inputs_signature([input_path])
         params: dict[str, object] = {
-            "model": context.settings.s05_model,
+            "llm_provider": context.settings.llm_provider.value,
+            "model": model,
             "temperature": context.settings.s05_temperature,
             "_inputs_signature": inputs_signature,
         }
@@ -72,26 +79,52 @@ class S05AsrCleanupUseCase:
 
         try:
             runtime.start(manifest)
-            manifest.tool_versions["ollama_model"] = context.settings.s05_model
+            manifest.tool_versions["llm_provider"] = self._llm_client.provider_name()
+            manifest.tool_versions["llm_model"] = model
             source_text = input_path.read_text(encoding="utf-8")
             chunks = chunk_text(source_text, max_chars=6000)
+            prompts = [s05_cleanup_prompt(chunk) for chunk in chunks]
+            guardrails = StageCostGuardrails(
+                settings=context.settings,
+                stage_id=StageId.S05,
+                provider=context.settings.llm_provider,
+                model=model,
+            )
+            preflight = guardrails.preflight(prompts)
+            if prompts:
+                context.emit_progress(
+                    f"[s05] preflight tokens in/out: {preflight['estimated_input_tokens']}/"
+                    f"{preflight['estimated_output_tokens']}, est. cost ${preflight['estimated_cost_usd']}",
+                    verbose_only=True,
+                )
 
             if chunks:
-                self._ollama.ensure_model_available(context.settings.s05_model)
+                self._llm_client.ensure_model_available(model)
 
             cleaned_chunks: list[str] = []
             edit_rows: list[dict[str, Any]] = []
             call_rows: list[dict[str, Any]] = []
+            total_chunks = len(chunks)
 
             for idx, chunk in enumerate(chunks, start=1):
-                prompt = s05_cleanup_prompt(chunk)
+                prompt = prompts[idx - 1]
                 prompt_hash = sha256_text(prompt)
-                response = self._ollama.generate(
-                    model=context.settings.s05_model,
+                context.emit_progress(f"[s05] llm chunk {idx}/{total_chunks}", verbose_only=True)
+                guardrails.before_call()
+                response_obj = self._llm_client.generate(
+                    model=model,
                     prompt=prompt,
                     temperature=context.settings.s05_temperature,
                     timeout_seconds=context.settings.stage_timeout_seconds,
-                ).strip()
+                )
+                response = response_obj.text.strip()
+                est_input_tokens, est_output_tokens = guardrails.estimated_tokens_for_prompt(prompt)
+                metrics = guardrails.record_call(
+                    estimated_input_tokens=est_input_tokens,
+                    estimated_output_tokens=est_output_tokens,
+                    usage_input_tokens=response_obj.usage_input_tokens,
+                    usage_output_tokens=response_obj.usage_output_tokens,
+                )
                 cleaned_chunks.append(response)
                 edit_rows.append(
                     {
@@ -104,18 +137,23 @@ class S05AsrCleanupUseCase:
                 call_rows.append(
                     {
                         "chunk_id": idx,
-                        "model": context.settings.s05_model,
+                        "provider": self._llm_client.provider_name(),
+                        "model": model,
                         "temperature": context.settings.s05_temperature,
                         "prompt_hash": prompt_hash,
                         "prompt": prompt,
                         "response": response,
                         "input_chars": len(chunk),
                         "output_chars": len(response),
+                        "usage_input_tokens": metrics.input_tokens,
+                        "usage_output_tokens": metrics.output_tokens,
+                        "estimated_cost_usd": metrics.estimated_cost_usd,
+                        "cumulative_cost_usd": metrics.cumulative_cost_usd,
                     }
                 )
                 manifest.llm_calls.append(
                     LlmCallRecord(
-                        model=context.settings.s05_model,
+                        model=model,
                         temperature=context.settings.s05_temperature,
                         prompt_hash=prompt_hash,
                         input_chars=len(chunk),

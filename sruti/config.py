@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from sruti.domain.enums import LlmProvider
+
 
 class Settings(BaseModel):
     """Global defaults used by CLI and stages."""
@@ -23,6 +25,22 @@ class Settings(BaseModel):
     s08_temperature: float = 0.1
     s09_model: str = "mistral:7b-instruct"
     s09_temperature: float = 0.2
+    llm_provider: LlmProvider = LlmProvider.LOCAL
+    openai_api_key_env: str = "OPENAI_API_KEY"
+    openai_base_url: str = ""
+    openai_timeout_seconds: int = 120
+    openai_max_retries: int = 3
+    openai_model_s05: str = "gpt-5-nano"
+    openai_model_s06: str = "gpt-5-nano"
+    openai_model_s07: str = "gpt-5-mini"
+    openai_model_s08: str = "gpt-5-mini"
+    openai_model_s09: str = "gpt-5-mini"
+    cost_cap_usd: float = 2.0
+    token_cap_input: int = 2_000_000
+    token_cap_output: int = 1_000_000
+    max_llm_calls_per_stage: int = 10_000
+    openai_price_input_per_1m: float = 0.25
+    openai_price_output_per_1m: float = 2.0
     llm_json_max_retries: int = 3
     ffmpeg_bin: str = "ffmpeg"
     whisper_cli_bin: str = "whisper-cli"

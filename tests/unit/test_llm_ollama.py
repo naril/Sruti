@@ -42,5 +42,10 @@ def test_generate_respects_explicit_timeout(monkeypatch) -> None:
     monkeypatch.setattr("sruti.infrastructure.llm_ollama.request.urlopen", fake_urlopen)
     client = OllamaClient()
     value = client.generate(model="m", prompt="p", temperature=0.1, timeout_seconds=5)
-    assert value == "ok"
+    assert value.text == "ok"
+    assert value.usage_input_tokens is None
     assert captured["timeout"] == 5
+
+
+def test_provider_name() -> None:
+    assert OllamaClient().provider_name() == "local"

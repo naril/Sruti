@@ -13,6 +13,7 @@ from sruti.application.stages.s07_editorial_uc import S07EditorialUseCase
 from sruti.application.stages.s08_translate_faithful_uc import S08TranslateFaithfulUseCase
 from sruti.application.stages.s09_translate_edit_uc import S09TranslateEditUseCase
 from sruti.domain.enums import OnExistsMode, StageStatus
+from sruti.domain.models import LlmGenerateResult
 from sruti.infrastructure.fs_repository import FileSystemManifestStore
 
 
@@ -42,6 +43,9 @@ class FakeOllama:
     def ensure_model_available(self, model: str) -> None:
         _ = model
 
+    def provider_name(self) -> str:
+        return "local"
+
     def generate(
         self,
         *,
@@ -49,19 +53,21 @@ class FakeOllama:
         prompt: str,
         temperature: float,
         timeout_seconds: int | None = None,
-    ) -> str:
+    ) -> LlmGenerateResult:
         _ = (model, temperature, timeout_seconds)
         if "Classify each span as KEEP or REMOVE" in prompt:
-            return '[{"span_id": 1, "action": "REMOVE", "label": "AUDIENCE", "reason": "non-lecture"}, {"span_id": 2, "action": "KEEP", "label": "LECTURE", "reason": "main content"}]'
+            return LlmGenerateResult(
+                text='[{"span_id": 1, "action": "REMOVE", "label": "AUDIENCE", "reason": "non-lecture"}, {"span_id": 2, "action": "KEEP", "label": "LECTURE", "reason": "main content"}]'
+            )
         if "You are cleaning ASR output from an English lecture" in prompt:
-            return "Audience: hello\n\nCore lecture text"
+            return LlmGenerateResult(text="Audience: hello\n\nCore lecture text")
         if "Translate English to Czech faithfully" in prompt:
-            return "Hlavni text prednasky."
+            return LlmGenerateResult(text="Hlavni text prednasky.")
         if "Improve Czech readability and style" in prompt:
-            return "Hlavni text prednasky."
+            return LlmGenerateResult(text="Hlavni text prednasky.")
         if "Edit the following English lecture text" in prompt:
-            return "Core lecture text."
-        return "Core lecture text."
+            return LlmGenerateResult(text="Core lecture text.")
+        return LlmGenerateResult(text="Core lecture text.")
 
 
 def _ctx(run_dir: Path) -> StageContext:
@@ -98,11 +104,11 @@ def test_full_pipeline_simulated(monkeypatch, tmp_path: Path) -> None:
     s03 = S03AsrWhisperUseCase(whisper_model_path=model_path, whisper=FakeWhisper(), manifest_store=store)
     s04 = S04MergeUseCase(manifest_store=store)
     fake_ollama = FakeOllama()
-    s05 = S05AsrCleanupUseCase(ollama=fake_ollama, manifest_store=store)
-    s06 = S06RemoveNonLectureUseCase(ollama=fake_ollama, manifest_store=store)
-    s07 = S07EditorialUseCase(ollama=fake_ollama, manifest_store=store)
-    s08 = S08TranslateFaithfulUseCase(ollama=fake_ollama, manifest_store=store)
-    s09 = S09TranslateEditUseCase(ollama=fake_ollama, manifest_store=store)
+    s05 = S05AsrCleanupUseCase(llm_client=fake_ollama, manifest_store=store)
+    s06 = S06RemoveNonLectureUseCase(llm_client=fake_ollama, manifest_store=store)
+    s07 = S07EditorialUseCase(llm_client=fake_ollama, manifest_store=store)
+    s08 = S08TranslateFaithfulUseCase(llm_client=fake_ollama, manifest_store=store)
+    s09 = S09TranslateEditUseCase(llm_client=fake_ollama, manifest_store=store)
 
     for use_case in [s01, s02, s03, s04, s05, s06, s07, s08, s09]:
         result = use_case.run(ctx)

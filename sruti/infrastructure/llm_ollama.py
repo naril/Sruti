@@ -5,6 +5,7 @@ from typing import Any
 from urllib import error, request
 
 from sruti.domain.errors import DependencyMissingError, StageExecutionError
+from sruti.domain.models import LlmGenerateResult
 from sruti.infrastructure import json_codec
 
 DEFAULT_HTTP_TIMEOUT_SECONDS = 30
@@ -18,6 +19,9 @@ class OllamaClient:
         payload = self._request_json("GET", "/api/tags")
         models = payload.get("models", [])
         return [item["name"] for item in models if isinstance(item, dict) and "name" in item]
+
+    def provider_name(self) -> str:
+        return "local"
 
     def ensure_model_available(self, model: str) -> None:
         available = self.list_models()
@@ -33,7 +37,7 @@ class OllamaClient:
         prompt: str,
         temperature: float,
         timeout_seconds: int | None = None,
-    ) -> str:
+    ) -> LlmGenerateResult:
         body = {
             "model": model,
             "prompt": prompt,
@@ -49,7 +53,7 @@ class OllamaClient:
         response = payload.get("response")
         if not isinstance(response, str):
             raise StageExecutionError("Ollama response missing 'response' text.")
-        return response
+        return LlmGenerateResult(text=response)
 
     def _request_json(
         self,
