@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sys
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
@@ -59,11 +59,8 @@ class StageContext:
             force=force,
             verbose=verbose,
             is_tty=sys.stdin.isatty(),
-            progress_emitter=progress_emitter or _noop_progress,
+            progress_emitter=progress_emitter if progress_emitter is not None else _noop_progress,
         )
-
-    def with_progress_emitter(self, progress_emitter: Callable[[str], None]) -> "StageContext":
-        return replace(self, progress_emitter=progress_emitter)
 
     def emit_progress(self, message: str, *, verbose_only: bool = False) -> None:
         if verbose_only and not self.verbose:

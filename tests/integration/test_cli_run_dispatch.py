@@ -146,3 +146,44 @@ def test_cli_run_applies_llm_provider_and_cap_overrides(monkeypatch, tmp_path: P
     assert observed["cost_cap_usd"] == 0.5
     assert observed["token_cap_input"] == 1234
     assert observed["token_cap_output"] == 4321
+
+
+def test_cli_single_stage_applies_llm_provider_and_caps(monkeypatch, tmp_path: Path) -> None:
+    observed: dict[str, object] = {}
+
+    def fake_s07_run_stage(**kwargs):
+        context = kwargs["context"]
+        observed["llm_provider"] = context.settings.llm_provider
+        observed["cost_cap_usd"] = context.settings.cost_cap_usd
+        observed["token_cap_input"] = context.settings.token_cap_input
+        observed["token_cap_output"] = context.settings.token_cap_output
+        stage_dir = context.run_dir / "s07_fake"
+        stage_dir.mkdir(parents=True, exist_ok=True)
+        return StageResult(stage=StageId.S07, status=StageStatus.SUCCESS, stage_dir=stage_dir, outputs=[])
+
+    monkeypatch.setattr("sruti.cli.s07_editorial.run_stage", fake_s07_run_stage)
+
+    run_dir = tmp_path / "run4"
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "s07-editorial",
+            str(run_dir),
+            "--llm-provider",
+            "openai",
+            "--cost-cap-usd",
+            "0.25",
+            "--token-cap-input",
+            "200",
+            "--token-cap-output",
+            "300",
+            "--on-exists",
+            "overwrite",
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    assert observed["llm_provider"] is LlmProvider.OPENAI
+    assert observed["cost_cap_usd"] == 0.25
+    assert observed["token_cap_input"] == 200
+    assert observed["token_cap_output"] == 300

@@ -64,7 +64,6 @@ class StageRuntime:
         self.context.emit_progress(f"[{self.stage_id.value}] started")
 
     def mark_dry_run(self, manifest: StageManifest) -> StageResult:
-        self.context.emit_progress(f"[{self.stage_id.value}] started")
         manifest.status = StageStatus.DRY_RUN
         manifest.finished_at = manifest_util.utc_now_iso()
         self.manifest_store.save_stage_manifest(self.stage_dir, manifest)
@@ -74,7 +73,6 @@ class StageRuntime:
         return StageResult(stage=self.stage_id, status=StageStatus.DRY_RUN, stage_dir=self.stage_dir)
 
     def mark_skipped(self, manifest: StageManifest) -> StageResult:
-        self.context.emit_progress(f"[{self.stage_id.value}] started")
         manifest.status = StageStatus.SKIPPED
         manifest.finished_at = manifest_util.utc_now_iso()
         self.manifest_store.save_stage_manifest(self.stage_dir, manifest)
@@ -113,10 +111,25 @@ class StageRuntime:
         )
 
     def _duration_seconds(self, manifest: StageManifest) -> float:
+        """Best-effort wall-clock duration; returns 0.0 on unparsable timestamps."""
         try:
-            started_at = datetime.fromisoformat(manifest.started_at)
+            started_at = self._parse_iso_datetime(manifest.started_at)
             finished_raw = manifest.finished_at or manifest_util.utc_now_iso()
-            finished_at = datetime.fromisoformat(finished_raw)
+            finished_at = self._parse_iso_datetime(finished_raw)
             return max(0.0, (finished_at - started_at).total_seconds())
         except ValueError:
             return 0.0
+
+    def _parse_iso_datetime(self, value: str) -> datetime:
+        normalized = value.strip()
+        if normalized.endswith("Z"):
+            normalized = normalized[:-1] + "+00:00"
+        try:
+            return datetime.fromisoformat(normalized)
+        except ValueError:
+            for fmt in ("%Y-%m-%dT%H:%M:%S.%f%z", "%Y-%m-%dT%H:%M:%S%z"):
+                try:
+                    return datetime.strptime(normalized, fmt)
+                except ValueError:
+                    continue
+            raise

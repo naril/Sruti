@@ -63,7 +63,9 @@ def _stage_context(
     )
 
 
-def _print_result(result: StageResult) -> None:
+def _print_result(result: StageResult, *, include_status: bool = True) -> None:
+    if include_status:
+        typer.secho(f"[{result.stage.value}] {result.status.value}", fg=typer.colors.GREEN)
     if result.outputs:
         for output in result.outputs:
             typer.echo(f"  - {output}")
@@ -157,7 +159,7 @@ def run_pipeline(
                 seconds=seconds,
                 model_path=model_path,
             )
-            _print_result(result)
+            _print_result(result, include_status=False)
         except Exception as exc:
             _handle_failure(exc)
 
@@ -188,7 +190,7 @@ def run_s01_normalize(
     )
     try:
         result = s01_normalize.run_stage(context=context, input_audio=in_path, ask_user=_ask_user)
-        _print_result(result)
+        _print_result(result, include_status=False)
     except Exception as exc:
         _handle_failure(exc)
 
@@ -220,7 +222,7 @@ def run_s02_chunk(
     try:
         effective_seconds = seconds if seconds is not None else context.settings.chunk_seconds
         result = s02_chunk.run_stage(context=context, seconds=effective_seconds, ask_user=_ask_user)
-        _print_result(result)
+        _print_result(result, include_status=False)
     except Exception as exc:
         _handle_failure(exc)
 
@@ -260,7 +262,7 @@ def run_s03_asr(
             model_path=effective_model_path,
             ask_user=_ask_user,
         )
-        _print_result(result)
+        _print_result(result, include_status=False)
     except Exception as exc:
         _handle_failure(exc)
 
@@ -290,7 +292,7 @@ def run_s04_merge(
     )
     try:
         result = s04_merge.run_stage(context=context, ask_user=_ask_user)
-        _print_result(result)
+        _print_result(result, include_status=False)
     except Exception as exc:
         _handle_failure(exc)
 
@@ -320,7 +322,7 @@ def run_s05_asr_cleanup(
     )
     try:
         result = s05_asr_cleanup.run_stage(context=context, ask_user=_ask_user)
-        _print_result(result)
+        _print_result(result, include_status=False)
     except Exception as exc:
         _handle_failure(exc)
 
@@ -350,7 +352,7 @@ def run_s06_remove_nonlecture(
     )
     try:
         result = s06_remove_nonlecture.run_stage(context=context, ask_user=_ask_user)
-        _print_result(result)
+        _print_result(result, include_status=False)
     except Exception as exc:
         _handle_failure(exc)
 
@@ -380,7 +382,7 @@ def run_s07_editorial(
     )
     try:
         result = s07_editorial.run_stage(context=context, ask_user=_ask_user)
-        _print_result(result)
+        _print_result(result, include_status=False)
     except Exception as exc:
         _handle_failure(exc)
 
@@ -410,7 +412,7 @@ def run_s08_translate(
     )
     try:
         result = s08_translate_faithful.run_stage(context=context, ask_user=_ask_user)
-        _print_result(result)
+        _print_result(result, include_status=False)
     except Exception as exc:
         _handle_failure(exc)
 
@@ -440,7 +442,7 @@ def run_s09_translate_edit(
     )
     try:
         result = s09_translate_edit.run_stage(context=context, ask_user=_ask_user)
-        _print_result(result)
+        _print_result(result, include_status=False)
     except Exception as exc:
         _handle_failure(exc)
 
