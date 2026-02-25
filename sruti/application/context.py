@@ -29,6 +29,7 @@ class StageContext:
         cls,
         *,
         run_dir: Path,
+        settings_dir: Path | None = None,
         on_exists: OnExistsMode,
         dry_run: bool,
         force: bool,
@@ -39,11 +40,12 @@ class StageContext:
         token_cap_output_override: int | None = None,
         progress_emitter: Callable[[str], None] | None = None,
     ) -> "StageContext":
-        settings = load_settings(run_dir=run_dir)
+        effective_settings_dir = settings_dir if settings_dir is not None else run_dir
+        settings = load_settings(run_dir=effective_settings_dir)
         override_values: dict[str, object] = {}
         prompt_templates_dir = settings.prompt_templates_dir
         if prompt_templates_dir is not None and not prompt_templates_dir.is_absolute():
-            override_values["prompt_templates_dir"] = run_dir / prompt_templates_dir
+            override_values["prompt_templates_dir"] = effective_settings_dir / prompt_templates_dir
         if llm_provider_override is not None:
             override_values["llm_provider"] = llm_provider_override
         if cost_cap_usd_override is not None:

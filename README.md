@@ -36,6 +36,16 @@ sruti run RUN_DIR \
   --on-exists overwrite
 ```
 
+Batch mode over a folder:
+
+```bash
+sruti run-batch RUNS_ROOT \
+  --in-dir /absolute/path/audio-folder \
+  --from s01 \
+  --to s09 \
+  --on-exists overwrite
+```
+
 Use `sruti --help` for command list and `sruti <command> --help` for command-specific options.
 
 ### Command Reference
@@ -57,6 +67,24 @@ Key options:
 - `--from sXX`: start stage (inclusive), for example `s05` to resume from cleanup.
 - `--to sXX`: end stage (inclusive), for example `s07` to stop at English editorial output.
 - `--in PATH`: required only when `--from` includes `s01`.
+
+#### `sruti run-batch RUNS_ROOT --in-dir INPUT_DIR [OPTIONS]`
+
+Runs the same stage range for each supported audio file found under `INPUT_DIR` recursively.
+Input order is deterministic by sorted relative path.
+For each input file, `sruti` creates or reuses one dedicated subfolder in `RUNS_ROOT/` and runs
+the pipeline there.
+
+Batch mode rules:
+
+- Shared config is required at `RUNS_ROOT/pipeline.toml` and is used for every file.
+- Outputs are isolated per input file in per-file run dirs under `RUNS_ROOT/`.
+- Per-file run dir naming starts from sanitized input stem (for example `lecture-a`) and resolves
+  collisions with suffixes (`lecture-a-2`, `lecture-a-3`, ...).
+- Stable mapping is stored in `RUNS_ROOT/batch_manifest.json` so repeated runs keep existing
+  `audio -> run_dir` assignments.
+- On per-file failure, batch continues with remaining files and exits with code `1` if any file
+  failed (otherwise `0`).
 
 #### `sruti s01-normalize RUN_DIR --in INPUT_AUDIO [OPTIONS]`
 
@@ -134,6 +162,12 @@ Shared stage options:
 - `s09_translate_edit/final_publishable_cs.txt`
 
 Each stage also writes `manifest.json`.
+
+In batch mode, `RUNS_ROOT/` additionally contains:
+
+- `pipeline.toml` (shared settings for all files)
+- `batch_manifest.json` (stable `audio -> run_dir` mapping)
+- one subfolder per discovered audio input
 
 ## Configuration
 
