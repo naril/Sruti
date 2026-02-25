@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
+from typing import Protocol
 from typing import Any
 
 from sruti.application.context import StageContext
@@ -16,6 +18,10 @@ from sruti.util.io import atomic_write_text, write_jsonl
 from sruti.util.system import require_executable, require_file
 
 
+class PromptBuilder(Protocol):
+    def __call__(self, text: str, *, template_dir: Path | None = None) -> str: ...
+
+
 class LlmTextTransformUseCase:
     stage_id: StageId
     input_stage_id: StageId
@@ -23,7 +29,7 @@ class LlmTextTransformUseCase:
     output_filename: str
     model_setting_attr: str
     temperature_setting_attr: str
-    prompt_builder: Callable[[str], str]
+    prompt_builder: PromptBuilder
     chunk_max_chars: int = 6000
 
     def __init__(
@@ -61,6 +67,11 @@ class LlmTextTransformUseCase:
             "model": model,
             "temperature": temperature,
             "chunk_max_chars": self.chunk_max_chars,
+            "prompt_templates_dir": (
+                str(context.settings.prompt_templates_dir)
+                if context.settings.prompt_templates_dir is not None
+                else None
+            ),
             "_inputs_signature": inputs_signature,
         }
 
@@ -90,7 +101,13 @@ class LlmTextTransformUseCase:
             manifest.tool_versions["llm_model"] = model
             source_text = input_path.read_text(encoding="utf-8")
             chunks = chunk_text(source_text, max_chars=self.chunk_max_chars)
-            prompts = [self.prompt_builder(chunk) for chunk in chunks]
+            prompts = [
+                self.prompt_builder(
+                    chunk,
+                    template_dir=context.settings.prompt_templates_dir,
+                )
+                for chunk in chunks
+            ]
             guardrails = StageCostGuardrails(
                 settings=context.settings,
                 stage_id=self.stage_id,

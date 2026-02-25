@@ -54,6 +54,11 @@ class S05AsrCleanupUseCase:
             "llm_provider": context.settings.llm_provider.value,
             "model": model,
             "temperature": context.settings.s05_temperature,
+            "prompt_templates_dir": (
+                str(context.settings.prompt_templates_dir)
+                if context.settings.prompt_templates_dir is not None
+                else None
+            ),
             "_inputs_signature": inputs_signature,
         }
 
@@ -83,7 +88,13 @@ class S05AsrCleanupUseCase:
             manifest.tool_versions["llm_model"] = model
             source_text = input_path.read_text(encoding="utf-8")
             chunks = chunk_text(source_text, max_chars=6000)
-            prompts = [s05_cleanup_prompt(chunk) for chunk in chunks]
+            prompts = [
+                s05_cleanup_prompt(
+                    chunk,
+                    template_dir=context.settings.prompt_templates_dir,
+                )
+                for chunk in chunks
+            ]
             guardrails = StageCostGuardrails(
                 settings=context.settings,
                 stage_id=StageId.S05,

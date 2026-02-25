@@ -41,6 +41,9 @@ class StageContext:
     ) -> "StageContext":
         settings = load_settings(run_dir=run_dir)
         override_values: dict[str, object] = {}
+        prompt_templates_dir = settings.prompt_templates_dir
+        if prompt_templates_dir is not None and not prompt_templates_dir.is_absolute():
+            override_values["prompt_templates_dir"] = run_dir / prompt_templates_dir
         if llm_provider_override is not None:
             override_values["llm_provider"] = llm_provider_override
         if cost_cap_usd_override is not None:

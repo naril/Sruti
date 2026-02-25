@@ -87,6 +87,11 @@ class S06RemoveNonLectureUseCase:
             "model": model,
             "temperature": context.settings.s06_temperature,
             "llm_json_max_retries": context.settings.llm_json_max_retries,
+            "prompt_templates_dir": (
+                str(context.settings.prompt_templates_dir)
+                if context.settings.prompt_templates_dir is not None
+                else None
+            ),
             "_inputs_signature": inputs_signature,
         }
 
@@ -215,7 +220,8 @@ class S06RemoveNonLectureUseCase:
         batches = self._split_span_batches(spans)
         prompts = [
             s06_classification_prompt(
-                "\n".join(f"[{item['span_id']}] {item['text']}" for item in batch)
+                "\n".join(f"[{item['span_id']}] {item['text']}" for item in batch),
+                template_dir=context.settings.prompt_templates_dir,
             )
             for batch in batches
         ]
@@ -301,7 +307,13 @@ class S06RemoveNonLectureUseCase:
 
         for attempt in range(max_attempts):
             active_prompt = (
-                prompt if attempt == 0 else s06_repair_json_prompt(prompt, last_response)
+                prompt
+                if attempt == 0
+                else s06_repair_json_prompt(
+                    prompt,
+                    last_response,
+                    template_dir=context.settings.prompt_templates_dir,
+                )
             )
             if attempt > 0:
                 context.emit_progress(

@@ -6,24 +6,50 @@ from pathlib import Path
 from typing import Mapping
 
 PLACEHOLDER_PATTERN = re.compile(r"\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}")
+DEFAULT_TEMPLATE_DIR = Path(__file__).resolve().parent / "prompt_templates"
 
 
-def _template_dir() -> Path:
+def _env_template_dir() -> Path | None:
     override = os.getenv("SRUTI_PROMPTS_DIR")
     if override:
         return Path(override)
-    return Path(__file__).resolve().parent / "prompt_templates"
+    return None
 
 
-def _load_template(name: str) -> str:
-    path = _template_dir() / name
-    if not path.exists():
-        raise FileNotFoundError(f"Prompt template not found: {path}")
-    return path.read_text(encoding="utf-8")
+def _template_roots(*, template_dir: Path | None = None) -> list[Path]:
+    if template_dir is not None:
+        if not template_dir.exists():
+            raise FileNotFoundError(f"Prompt template directory not found: {template_dir}")
+        if not template_dir.is_dir():
+            raise FileNotFoundError(f"Prompt template path is not a directory: {template_dir}")
+        return [template_dir, DEFAULT_TEMPLATE_DIR]
+    env_dir = _env_template_dir()
+    if env_dir is not None:
+        return [env_dir]
+    return [DEFAULT_TEMPLATE_DIR]
 
 
-def _render_template(name: str, values: Mapping[str, str]) -> str:
-    template = _load_template(name)
+def _load_template(name: str, *, template_dir: Path | None = None) -> str:
+    roots = _template_roots(template_dir=template_dir)
+    for root in roots:
+        path = root / name
+        if path.exists():
+            return path.read_text(encoding="utf-8")
+    if template_dir is not None:
+        raise FileNotFoundError(
+            f"Prompt template not found: {template_dir / name} "
+            f"(fallback: {DEFAULT_TEMPLATE_DIR / name})"
+        )
+    raise FileNotFoundError(f"Prompt template not found: {roots[0] / name}")
+
+
+def _render_template(
+    name: str,
+    values: Mapping[str, str],
+    *,
+    template_dir: Path | None = None,
+) -> str:
+    template = _load_template(name, template_dir=template_dir)
     placeholders = set(PLACEHOLDER_PATTERN.findall(template))
     missing = placeholders - set(values.keys())
     if missing:
@@ -36,28 +62,38 @@ def _render_template(name: str, values: Mapping[str, str]) -> str:
     return rendered
 
 
-def s05_cleanup_prompt(text: str) -> str:
-    return _render_template("s05_cleanup.txt", {"text": text})
+def s05_cleanup_prompt(text: str, *, template_dir: Path | None = None) -> str:
+    return _render_template("s05_cleanup.txt", {"text": text}, template_dir=template_dir)
 
 
-def s06_classification_prompt(span_lines: str) -> str:
-    return _render_template("s06_classification.txt", {"span_lines": span_lines})
-
-
-def s06_repair_json_prompt(original_prompt: str, bad_response: str) -> str:
+def s06_classification_prompt(span_lines: str, *, template_dir: Path | None = None) -> str:
     return _render_template(
-        "s06_repair_json.txt",
-        {"original_prompt": original_prompt, "bad_response": bad_response},
+        "s06_classification.txt",
+        {"span_lines": span_lines},
+        template_dir=template_dir,
     )
 
 
-def s07_editorial_prompt(text: str) -> str:
-    return _render_template("s07_editorial.txt", {"text": text})
+def s06_repair_json_prompt(
+    original_prompt: str,
+    bad_response: str,
+    *,
+    template_dir: Path | None = None,
+) -> str:
+    return _render_template(
+        "s06_repair_json.txt",
+        {"original_prompt": original_prompt, "bad_response": bad_response},
+        template_dir=template_dir,
+    )
 
 
-def s08_translate_prompt(text: str) -> str:
-    return _render_template("s08_translate.txt", {"text": text})
+def s07_editorial_prompt(text: str, *, template_dir: Path | None = None) -> str:
+    return _render_template("s07_editorial.txt", {"text": text}, template_dir=template_dir)
 
 
-def s09_czech_editorial_prompt(text: str) -> str:
-    return _render_template("s09_czech_editorial.txt", {"text": text})
+def s08_translate_prompt(text: str, *, template_dir: Path | None = None) -> str:
+    return _render_template("s08_translate.txt", {"text": text}, template_dir=template_dir)
+
+
+def s09_czech_editorial_prompt(text: str, *, template_dir: Path | None = None) -> str:
+    return _render_template("s09_czech_editorial.txt", {"text": text}, template_dir=template_dir)
