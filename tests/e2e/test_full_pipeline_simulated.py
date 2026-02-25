@@ -53,6 +53,8 @@ class FakeOllama:
         _ = (model, temperature, timeout_seconds)
         if "Classify each span as KEEP or REMOVE" in prompt:
             return '[{"span_id": 1, "action": "REMOVE", "label": "AUDIENCE", "reason": "non-lecture"}, {"span_id": 2, "action": "KEEP", "label": "LECTURE", "reason": "main content"}]'
+        if "You are cleaning ASR output from an English lecture" in prompt:
+            return "Audience: hello\n\nCore lecture text"
         if "Translate English to Czech faithfully" in prompt:
             return "Hlavni text prednasky."
         if "Improve Czech readability and style" in prompt:

@@ -45,7 +45,6 @@ def artifacts_for_existing(paths: list[Path]) -> list[FileArtifact]:
 
 
 def save_stage_manifest(stage_dir: Path, manifest: StageManifest) -> None:
-    manifest.finished_at = manifest.finished_at or utc_now_iso()
     atomic_write_json(stage_dir / "manifest.json", manifest.model_dump())
 
 

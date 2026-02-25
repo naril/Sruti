@@ -57,15 +57,18 @@ class StageRuntime:
     def start(self, manifest: StageManifest) -> None:
         ensure_dir(self.stage_dir)
         manifest.status = StageStatus.RUNNING
+        manifest.finished_at = None
         self.manifest_store.save_stage_manifest(self.stage_dir, manifest)
 
     def mark_dry_run(self, manifest: StageManifest) -> StageResult:
         manifest.status = StageStatus.DRY_RUN
+        manifest.finished_at = manifest_util.utc_now_iso()
         self.manifest_store.save_stage_manifest(self.stage_dir, manifest)
         return StageResult(stage=self.stage_id, status=StageStatus.DRY_RUN, stage_dir=self.stage_dir)
 
     def mark_skipped(self, manifest: StageManifest) -> StageResult:
         manifest.status = StageStatus.SKIPPED
+        manifest.finished_at = manifest_util.utc_now_iso()
         self.manifest_store.save_stage_manifest(self.stage_dir, manifest)
         return StageResult(stage=self.stage_id, status=StageStatus.SKIPPED, stage_dir=self.stage_dir)
 
@@ -76,6 +79,7 @@ class StageRuntime:
         output_paths: list[Path],
     ) -> StageResult:
         manifest.status = StageStatus.SUCCESS
+        manifest.finished_at = manifest_util.utc_now_iso()
         manifest.outputs = manifest_util.artifacts_for_existing(output_paths)
         self.manifest_store.save_stage_manifest(self.stage_dir, manifest)
         return StageResult(
@@ -87,5 +91,6 @@ class StageRuntime:
 
     def mark_failure(self, manifest: StageManifest, error_message: str) -> None:
         manifest.status = StageStatus.FAILED
+        manifest.finished_at = manifest_util.utc_now_iso()
         manifest.errors.append(error_message)
         self.manifest_store.save_stage_manifest(self.stage_dir, manifest)

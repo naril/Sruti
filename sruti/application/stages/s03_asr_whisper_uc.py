@@ -96,6 +96,8 @@ class S03AsrWhisperUseCase:
                     {
                         "id": chunk_id,
                         "chunk_filename": row["filename"],
+                        "start_time": row.get("start_time"),
+                        "end_time": row.get("end_time"),
                         "txt_filename": txt_path.name,
                         "srt_filename": srt_path.name,
                     }

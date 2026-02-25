@@ -26,13 +26,31 @@ def test_s04_merge_happy_path(tmp_path: Path) -> None:
     transcripts_dir.mkdir(parents=True, exist_ok=True)
     (transcripts_dir / "0001.txt").write_text("a", encoding="utf-8")
     (transcripts_dir / "0002.txt").write_text("b", encoding="utf-8")
-    (transcripts_dir / "0001.srt").write_text("1", encoding="utf-8")
-    (transcripts_dir / "0002.srt").write_text("2", encoding="utf-8")
+    (transcripts_dir / "0001.srt").write_text(
+        "1\n00:00:00,100 --> 00:00:00,900\nchunk1\n",
+        encoding="utf-8",
+    )
+    (transcripts_dir / "0002.srt").write_text(
+        "1\n00:00:00,200 --> 00:00:01,000\nchunk2\n",
+        encoding="utf-8",
+    )
     atomic_write_json(
         s03_dir / "transcripts_index.json",
         [
-            {"id": 1, "txt_filename": "0001.txt", "srt_filename": "0001.srt"},
-            {"id": 2, "txt_filename": "0002.txt", "srt_filename": "0002.srt"},
+            {
+                "id": 1,
+                "start_time": 0,
+                "end_time": 30,
+                "txt_filename": "0001.txt",
+                "srt_filename": "0001.srt",
+            },
+            {
+                "id": 2,
+                "start_time": 30,
+                "end_time": 60,
+                "txt_filename": "0002.txt",
+                "srt_filename": "0002.srt",
+            },
         ],
     )
 
@@ -40,3 +58,6 @@ def test_s04_merge_happy_path(tmp_path: Path) -> None:
     result = use_case.run(_ctx(tmp_path))
     assert result.status == StageStatus.SUCCESS
     assert (tmp_path / "s04_merge" / "merged_raw.txt").read_text(encoding="utf-8").strip() == "a\n\nb"
+    merged_srt = (tmp_path / "s04_merge" / "merged_raw.srt").read_text(encoding="utf-8")
+    assert "1\n00:00:00,100 --> 00:00:00,900" in merged_srt
+    assert "2\n00:00:30,200 --> 00:00:31,000" in merged_srt

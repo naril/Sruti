@@ -55,6 +55,7 @@ def test_s03_asr_happy_path(monkeypatch, tmp_path: Path) -> None:
     assert result.status == StageStatus.SUCCESS
     rows = loads((tmp_path / "s03_asr" / "transcripts_index.json").read_text(encoding="utf-8"))
     assert rows[0]["txt_filename"] == "0001.txt"
+    assert rows[0]["start_time"] == 0
 
 
 def test_s03_asr_dry_run(monkeypatch, tmp_path: Path) -> None:
