@@ -86,7 +86,8 @@ Writes: `s05_asr_cleanup/cleaned_1.txt` and `s05_asr_cleanup/edits.jsonl`.
 #### `sruti s06-remove-nonlecture RUN_DIR [OPTIONS]`
 
 Stage `s06`. Detects and removes non-lecture segments (ads, chatter, unrelated fragments).
-Writes: `s06_remove_nonlecture/content_only.txt` and `removed_spans.jsonl`.
+Writes: `s06_remove_nonlecture/content_only.txt`, `removed_spans.jsonl`, and
+`removal_report.html` (sentence-level KEEP/REMOVE review).
 
 #### `sruti s07-editorial RUN_DIR [OPTIONS]`
 
@@ -125,7 +126,7 @@ Shared stage options:
 - `s03_asr/transcripts/*.txt`, `s03_asr/transcripts/*.srt`, `s03_asr/transcripts_index.json`
 - `s04_merge/merged_raw.txt`, `s04_merge/merged_raw.srt`
 - `s05_asr_cleanup/cleaned_1.txt`, `s05_asr_cleanup/edits.jsonl`
-- `s06_remove_nonlecture/content_only.txt`, `s06_remove_nonlecture/removed_spans.jsonl`
+- `s06_remove_nonlecture/content_only.txt`, `s06_remove_nonlecture/removed_spans.jsonl`, `s06_remove_nonlecture/removal_report.html`
 - `s07_editorial/final_publishable_en.txt`
 - `s08_translate/translated_faithful_cs.txt`
 - `s09_translate_edit/final_publishable_cs.txt`

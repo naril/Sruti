@@ -200,6 +200,12 @@ def test_s06_remove_nonlecture_with_retry(monkeypatch, tmp_path: Path) -> None:
     assert "Lecture starts" in (tmp_path / "s06_remove_nonlecture" / "content_only.txt").read_text(
         encoding="utf-8"
     )
+    report_path = tmp_path / "s06_remove_nonlecture" / "removal_report.html"
+    report_html = report_path.read_text(encoding="utf-8")
+    assert "status-REMOVE" in report_html
+    assert "status-KEEP" in report_html
+    assert "Audience question" in report_html
+    assert "Lecture starts" in report_html
 
 
 def test_s06_remove_nonlecture_fails_after_retries(monkeypatch, tmp_path: Path) -> None:
@@ -252,6 +258,9 @@ def test_s06_remove_nonlecture_empty_input_short_circuits(monkeypatch, tmp_path:
     result = use_case.run(_ctx(tmp_path))
     assert result.status == StageStatus.SUCCESS
     assert (tmp_path / "s06_remove_nonlecture" / "content_only.txt").read_text(encoding="utf-8") == ""
+    report_path = tmp_path / "s06_remove_nonlecture" / "removal_report.html"
+    assert report_path.exists()
+    assert "No sentences available." in report_path.read_text(encoding="utf-8")
 
 
 def test_s06_remove_nonlecture_accepts_markdown_fenced_json(monkeypatch, tmp_path: Path) -> None:

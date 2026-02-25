@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from html import escape
 import re
 from collections.abc import Callable
 from typing import Any, Literal
@@ -79,6 +80,7 @@ class S06RemoveNonLectureUseCase:
 
         content_only_path = stage_dir / "content_only.txt"
         removed_spans_path = stage_dir / "removed_spans.jsonl"
+        report_html_path = stage_dir / "removal_report.html"
         llm_log_path = stage_dir / "logs" / "model_calls.jsonl"
         decisions_path = stage_dir / "decisions_raw.json"
         inputs_signature = manifest_util.inputs_signature([input_path])
@@ -99,7 +101,13 @@ class S06RemoveNonLectureUseCase:
             context=context,
             stage_id=StageId.S06,
             stage_dir=stage_dir,
-            expected_outputs=[content_only_path, removed_spans_path, llm_log_path, decisions_path],
+            expected_outputs=[
+                content_only_path,
+                removed_spans_path,
+                report_html_path,
+                llm_log_path,
+                decisions_path,
+            ],
             manifest_store=self._manifest_store,
             ask_user=self._ask_user,
         )
@@ -124,6 +132,7 @@ class S06RemoveNonLectureUseCase:
             if not spans:
                 atomic_write_text(content_only_path, "")
                 write_jsonl(removed_spans_path, [])
+                atomic_write_text(report_html_path, self._removal_report_html([]))
                 write_jsonl(llm_log_path, [])
                 atomic_write_text(decisions_path, self._decisions_json([]))
                 manifest.inputs = [manifest_util.artifact_for(input_path)]
@@ -132,6 +141,7 @@ class S06RemoveNonLectureUseCase:
                     output_paths=[
                         content_only_path,
                         removed_spans_path,
+                        report_html_path,
                         llm_log_path,
                         decisions_path,
                     ],
@@ -178,8 +188,10 @@ class S06RemoveNonLectureUseCase:
             final_text = "\n\n".join(kept_lines).strip()
             if final_text:
                 final_text += "\n"
+            sentence_rows = self._sentence_rows(spans, decisions)
             atomic_write_text(content_only_path, final_text)
             write_jsonl(removed_spans_path, removed_rows)
+            atomic_write_text(report_html_path, self._removal_report_html(sentence_rows))
             write_jsonl(llm_log_path, call_rows)
             atomic_write_text(decisions_path, self._decisions_json(decisions))
 
@@ -197,7 +209,13 @@ class S06RemoveNonLectureUseCase:
             manifest.inputs = [manifest_util.artifact_for(input_path)]
             return runtime.mark_success(
                 manifest,
-                output_paths=[content_only_path, removed_spans_path, llm_log_path, decisions_path],
+                output_paths=[
+                    content_only_path,
+                    removed_spans_path,
+                    report_html_path,
+                    llm_log_path,
+                    decisions_path,
+                ],
             )
         except Exception as exc:
             runtime.mark_failure(manifest, str(exc))
@@ -481,3 +499,101 @@ class S06RemoveNonLectureUseCase:
         from sruti.infrastructure.json_codec import dumps
 
         return dumps(rows, indent=2) + "\n"
+
+    def _sentence_rows(
+        self, spans: list[dict[str, Any]], decisions: list[SpanDecision]
+    ) -> list[dict[str, Any]]:
+        decision_by_span = {decision.span_id: decision for decision in decisions}
+        rows: list[dict[str, Any]] = []
+        for span in spans:
+            span_id = int(span["span_id"])
+            decision = decision_by_span.get(span_id)
+            action = decision.action if decision is not None else "KEEP"
+            label = decision.label if decision is not None else None
+            reason = decision.reason if decision is not None else None
+            for sentence in self._split_sentences(str(span["text"])):
+                rows.append(
+                    {
+                        "span_id": span_id,
+                        "action": action,
+                        "label": label,
+                        "reason": reason,
+                        "sentence": sentence,
+                    }
+                )
+        return rows
+
+    def _split_sentences(self, text: str) -> list[str]:
+        stripped = text.strip()
+        if not stripped:
+            return []
+        parts = re.split(r"(?<=[.!?])\s+", stripped)
+        sentences = [part.strip() for part in parts if part.strip()]
+        if sentences:
+            return sentences
+        return [stripped]
+
+    def _removal_report_html(self, rows: list[dict[str, Any]]) -> str:
+        keep_count = sum(1 for row in rows if row["action"] == "KEEP")
+        remove_count = sum(1 for row in rows if row["action"] == "REMOVE")
+        lines = [
+            "<!doctype html>",
+            "<html lang=\"en\">",
+            "<head>",
+            "  <meta charset=\"utf-8\">",
+            "  <title>s06 removal report</title>",
+            "  <style>",
+            "    body { font-family: sans-serif; margin: 24px; color: #111827; }",
+            "    h1 { margin-bottom: 8px; }",
+            "    .summary { margin-bottom: 16px; color: #374151; }",
+            "    table { border-collapse: collapse; width: 100%; }",
+            "    th, td { border: 1px solid #d1d5db; padding: 8px; vertical-align: top; }",
+            "    th { background: #f3f4f6; text-align: left; }",
+            "    tr.status-KEEP td.status { background: #ecfdf5; color: #065f46; font-weight: 600; }",
+            "    tr.status-REMOVE td.status { background: #fef2f2; color: #991b1b; font-weight: 600; }",
+            "    .empty { color: #6b7280; font-style: italic; }",
+            "  </style>",
+            "</head>",
+            "<body>",
+            "  <h1>s06 removal report</h1>",
+            f"  <p class=\"summary\">sentences: {len(rows)} | KEEP: {keep_count} | REMOVE: {remove_count}</p>",
+        ]
+
+        if not rows:
+            lines.append("  <p class=\"empty\">No sentences available.</p>")
+        else:
+            lines.extend(
+                [
+                    "  <table>",
+                    "    <thead>",
+                    "      <tr>",
+                    "        <th>#</th>",
+                    "        <th>span_id</th>",
+                    "        <th>status</th>",
+                    "        <th>label</th>",
+                    "        <th>reason</th>",
+                    "        <th>sentence</th>",
+                    "      </tr>",
+                    "    </thead>",
+                    "    <tbody>",
+                ]
+            )
+            for idx, row in enumerate(rows, start=1):
+                label = "" if row["label"] is None else str(row["label"])
+                reason = "" if row["reason"] is None else str(row["reason"])
+                lines.extend(
+                    [
+                        f"      <tr class=\"status-{row['action']}\">",
+                        f"        <td>{idx}</td>",
+                        f"        <td>{row['span_id']}</td>",
+                        f"        <td class=\"status\">{escape(str(row['action']))}</td>",
+                        f"        <td>{escape(label)}</td>",
+                        f"        <td>{escape(reason)}</td>",
+                        f"        <td>{escape(str(row['sentence']))}</td>",
+                        "      </tr>",
+                    ]
+                )
+            lines.extend(["    </tbody>", "  </table>"])
+
+        lines.extend(["</body>", "</html>", ""])
+        return "\n".join(lines)
