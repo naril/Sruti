@@ -172,6 +172,17 @@ LLM prompts are stored as editable text files in:
 - `sruti/llm/prompt_templates/*.txt`
 
 Placeholders use `{{name}}` syntax (for example `{{text}}`).
+
+Placeholder reference:
+
+- `{{text}}`: current text chunk passed to transform stages (`s05`, `s07`, `s08`, `s09`).
+- `{{span_lines}}`: batch of numbered spans for `s06` classification, one line per span in form `[id] text`.
+- `{{original_prompt}}`: original `s06` classification prompt (used only in JSON-repair retry prompt).
+- `{{bad_response}}`: invalid model output from previous `s06` attempt that should be repaired to valid JSON.
+
+If a template contains a placeholder that is not provided by code, the run fails with a
+`ValueError` ("Missing prompt template values ...").
+
 Template directory resolution order:
 
 1. `prompt_templates_dir` from `RUN_DIR/pipeline.toml`
