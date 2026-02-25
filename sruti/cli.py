@@ -6,6 +6,7 @@ import typer
 
 from sruti.application.context import StageContext
 from sruti.domain.enums import OnExistsMode, StageId
+from sruti.domain.errors import SrutiError
 from sruti.domain.models import StageResult
 from sruti.domain.policies import stage_ids_in_range
 from sruti.stages import (
@@ -54,6 +55,13 @@ def _print_result(result: StageResult) -> None:
     if result.outputs:
         for output in result.outputs:
             typer.echo(f"  - {output}")
+
+
+def _handle_failure(exc: Exception) -> None:
+    if isinstance(exc, (SrutiError, ValueError, FileNotFoundError)):
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+    raise exc
 
 
 def _run_single_stage(
@@ -112,14 +120,17 @@ def run_pipeline(
         verbose=verbose,
     )
     for stage_id in stage_ids_in_range(source_stage, target_stage):
-        result = _run_single_stage(
-            stage_id=stage_id,
-            context=context,
-            in_path=in_path,
-            seconds=seconds,
-            model_path=model_path,
-        )
-        _print_result(result)
+        try:
+            result = _run_single_stage(
+                stage_id=stage_id,
+                context=context,
+                in_path=in_path,
+                seconds=seconds,
+                model_path=model_path,
+            )
+            _print_result(result)
+        except Exception as exc:
+            _handle_failure(exc)
 
 
 @app.command("s01-normalize")
@@ -138,8 +149,11 @@ def run_s01_normalize(
         force=force,
         verbose=verbose,
     )
-    result = s01_normalize.run_stage(context=context, input_audio=in_path, ask_user=_ask_user)
-    _print_result(result)
+    try:
+        result = s01_normalize.run_stage(context=context, input_audio=in_path, ask_user=_ask_user)
+        _print_result(result)
+    except Exception as exc:
+        _handle_failure(exc)
 
 
 @app.command("s02-chunk")
@@ -158,8 +172,11 @@ def run_s02_chunk(
         force=force,
         verbose=verbose,
     )
-    result = s02_chunk.run_stage(context=context, seconds=seconds, ask_user=_ask_user)
-    _print_result(result)
+    try:
+        result = s02_chunk.run_stage(context=context, seconds=seconds, ask_user=_ask_user)
+        _print_result(result)
+    except Exception as exc:
+        _handle_failure(exc)
 
 
 @app.command("s03-asr")
@@ -178,12 +195,15 @@ def run_s03_asr(
         force=force,
         verbose=verbose,
     )
-    result = s03_asr_whispercli.run_stage(
-        context=context,
-        model_path=model_path,
-        ask_user=_ask_user,
-    )
-    _print_result(result)
+    try:
+        result = s03_asr_whispercli.run_stage(
+            context=context,
+            model_path=model_path,
+            ask_user=_ask_user,
+        )
+        _print_result(result)
+    except Exception as exc:
+        _handle_failure(exc)
 
 
 @app.command("s04-merge")
@@ -201,8 +221,11 @@ def run_s04_merge(
         force=force,
         verbose=verbose,
     )
-    result = s04_merge.run_stage(context=context, ask_user=_ask_user)
-    _print_result(result)
+    try:
+        result = s04_merge.run_stage(context=context, ask_user=_ask_user)
+        _print_result(result)
+    except Exception as exc:
+        _handle_failure(exc)
 
 
 @app.command("s05-asr-cleanup")
@@ -220,8 +243,11 @@ def run_s05_asr_cleanup(
         force=force,
         verbose=verbose,
     )
-    result = s05_asr_cleanup.run_stage(context=context, ask_user=_ask_user)
-    _print_result(result)
+    try:
+        result = s05_asr_cleanup.run_stage(context=context, ask_user=_ask_user)
+        _print_result(result)
+    except Exception as exc:
+        _handle_failure(exc)
 
 
 @app.command("s06-remove-nonlecture")
@@ -239,8 +265,11 @@ def run_s06_remove_nonlecture(
         force=force,
         verbose=verbose,
     )
-    result = s06_remove_nonlecture.run_stage(context=context, ask_user=_ask_user)
-    _print_result(result)
+    try:
+        result = s06_remove_nonlecture.run_stage(context=context, ask_user=_ask_user)
+        _print_result(result)
+    except Exception as exc:
+        _handle_failure(exc)
 
 
 @app.command("s07-editorial")
@@ -258,8 +287,11 @@ def run_s07_editorial(
         force=force,
         verbose=verbose,
     )
-    result = s07_editorial.run_stage(context=context, ask_user=_ask_user)
-    _print_result(result)
+    try:
+        result = s07_editorial.run_stage(context=context, ask_user=_ask_user)
+        _print_result(result)
+    except Exception as exc:
+        _handle_failure(exc)
 
 
 @app.command("s08-translate")
@@ -277,8 +309,11 @@ def run_s08_translate(
         force=force,
         verbose=verbose,
     )
-    result = s08_translate_faithful.run_stage(context=context, ask_user=_ask_user)
-    _print_result(result)
+    try:
+        result = s08_translate_faithful.run_stage(context=context, ask_user=_ask_user)
+        _print_result(result)
+    except Exception as exc:
+        _handle_failure(exc)
 
 
 @app.command("s09-translate-edit")
@@ -296,8 +331,11 @@ def run_s09_translate_edit(
         force=force,
         verbose=verbose,
     )
-    result = s09_translate_edit.run_stage(context=context, ask_user=_ask_user)
-    _print_result(result)
+    try:
+        result = s09_translate_edit.run_stage(context=context, ask_user=_ask_user)
+        _print_result(result)
+    except Exception as exc:
+        _handle_failure(exc)
 
 
 if __name__ == "__main__":
