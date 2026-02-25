@@ -54,4 +54,10 @@ def load_settings(run_dir: Path | None = None) -> Settings:
 
     # Support either root keys or [sruti] table.
     values = raw.get("sruti", raw)
+    if not isinstance(values, dict):
+        return Settings()
+
+    # Ignore unrelated keys so run-local config can coexist with other tooling.
+    known_keys = set(Settings.model_fields)
+    values = {key: value for key, value in values.items() if key in known_keys}
     return Settings.model_validate(values)

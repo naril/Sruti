@@ -12,6 +12,11 @@ def test_stage_ids_in_range_returns_inclusive_range() -> None:
     assert result == [StageId.S03, StageId.S04, StageId.S05]
 
 
+def test_stage_ids_in_range_rejects_reversed_range() -> None:
+    with pytest.raises(ValueError):
+        stage_ids_in_range(StageId.S05, StageId.S03)
+
+
 def test_existing_output_policy_overwrite_proceeds() -> None:
     decision = resolve_existing_output_policy(
         mode=OnExistsMode.OVERWRITE,

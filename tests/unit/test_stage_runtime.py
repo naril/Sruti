@@ -22,6 +22,19 @@ class MemoryManifestStore(ManifestStore):
         self.saved.append(manifest.model_copy(deep=True))
 
 
+class ResumeManifestStore(ManifestStore):
+    def __init__(self, manifest: StageManifest | None) -> None:
+        self._manifest = manifest
+
+    def load_stage_manifest(self, stage_dir: Path) -> StageManifest | None:
+        _ = stage_dir
+        return self._manifest
+
+    def save_stage_manifest(self, stage_dir: Path, manifest: StageManifest) -> None:
+        _ = stage_dir
+        self._manifest = manifest
+
+
 def _ctx(run_dir: Path) -> StageContext:
     return StageContext.build(
         run_dir=run_dir,
@@ -49,3 +62,25 @@ def test_stage_runtime_sets_finished_at_only_on_terminal_status(tmp_path: Path) 
     runtime.mark_success(manifest, output_paths=[])
     assert store.saved[-1].status == StageStatus.SUCCESS
     assert store.saved[-1].finished_at is not None
+
+
+def test_stage_runtime_should_skip_only_for_matching_success_manifest(tmp_path: Path) -> None:
+    existing = StageManifest(
+        stage=StageId.S01,
+        status=StageStatus.SUCCESS,
+        params={"flag": 1, "_inputs_signature": "abc"},
+    )
+    runtime = StageRuntime(
+        context=_ctx(tmp_path),
+        stage_id=StageId.S01,
+        stage_dir=tmp_path / "s01_normalize",
+        expected_outputs=[],
+        manifest_store=ResumeManifestStore(existing),
+    )
+    assert runtime.should_skip(params={"flag": 1, "_inputs_signature": "abc"}, inputs_signature="abc")
+    assert not runtime.should_skip(
+        params={"flag": 2, "_inputs_signature": "abc"}, inputs_signature="abc"
+    )
+    assert not runtime.should_skip(
+        params={"flag": 1, "_inputs_signature": "abc"}, inputs_signature="changed"
+    )

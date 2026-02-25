@@ -7,6 +7,8 @@ from urllib import error, request
 from sruti.domain.errors import DependencyMissingError, StageExecutionError
 from sruti.infrastructure import json_codec
 
+DEFAULT_HTTP_TIMEOUT_SECONDS = 30
+
 
 class OllamaClient:
     def __init__(self, base_url: str = "http://127.0.0.1:11434") -> None:
@@ -57,6 +59,9 @@ class OllamaClient:
         timeout_seconds: int | None = None,
     ) -> dict[str, Any]:
         data = None if body is None else json_codec.dumps(body).encode("utf-8")
+        effective_timeout = (
+            timeout_seconds if timeout_seconds is not None else DEFAULT_HTTP_TIMEOUT_SECONDS
+        )
         req = request.Request(
             url=f"{self._base_url}{path}",
             method=method,
@@ -64,7 +69,7 @@ class OllamaClient:
             data=data,
         )
         try:
-            with request.urlopen(req, timeout=timeout_seconds) as resp:  # nosec B310
+            with request.urlopen(req, timeout=effective_timeout) as resp:  # nosec B310
                 text = resp.read().decode("utf-8")
         except error.URLError as exc:
             raise DependencyMissingError(
