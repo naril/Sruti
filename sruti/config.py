@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import tomllib
 from pathlib import Path
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 
-@dataclass(frozen=True)
-class Settings:
+class Settings(BaseModel):
     """Global defaults used by CLI and stages."""
 
     chunk_seconds: int = 30
@@ -25,4 +27,31 @@ class Settings:
     ffmpeg_bin: str = "ffmpeg"
     whisper_cli_bin: str = "whisper-cli"
     ollama_bin: str = "ollama"
-    default_whisper_model_path: Path = Path("./models/ggml-large-v3.bin")
+    default_whisper_model_path: Path = Field(
+        default=Path("./models/ggml-large-v3.bin"),
+        description="Path to whisper.cpp large-v3 model.",
+    )
+    stage_timeout_seconds: int = 3600
+
+    model_config = {
+        "frozen": True,
+        "extra": "forbid",
+    }
+
+
+def load_settings(run_dir: Path | None = None) -> Settings:
+    """Load settings with optional run-local override from RUN_DIR/pipeline.toml."""
+
+    if run_dir is None:
+        return Settings()
+
+    config_path = run_dir / "pipeline.toml"
+    if not config_path.exists():
+        return Settings()
+
+    with config_path.open("rb") as handle:
+        raw: dict[str, Any] = tomllib.load(handle)
+
+    # Support either root keys or [sruti] table.
+    values = raw.get("sruti", raw)
+    return Settings.model_validate(values)

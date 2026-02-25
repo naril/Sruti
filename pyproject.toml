@@ -26,10 +26,11 @@ fastjson = ["orjson>=3.10.0"]
 sruti = "sruti.cli:app"
 
 [tool.setuptools]
-packages = ["sruti"]
+include-package-data = false
 
-[tool.setuptools.package-dir]
-"" = "."
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["sruti*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
