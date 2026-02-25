@@ -129,8 +129,14 @@ class S04MergeUseCase:
         return out
 
     def _parse_srt_timestamp(self, value: str) -> int:
-        # Format: HH:MM:SS,mmm
-        hhmmss, millis = value.split(",")
+        # Accept both HH:MM:SS,mmm and HH:MM:SS.mmm variants.
+        if "," in value:
+            hhmmss, millis_raw = value.rsplit(",", maxsplit=1)
+        elif "." in value:
+            hhmmss, millis_raw = value.rsplit(".", maxsplit=1)
+        else:
+            raise ValueError(f"Invalid SRT timestamp: {value}")
+        millis = (millis_raw + "000")[:3]
         hh_raw, mm_raw, ss_raw = hhmmss.split(":")
         total_seconds = int(hh_raw) * 3600 + int(mm_raw) * 60 + int(ss_raw)
         return total_seconds * 1000 + int(millis)

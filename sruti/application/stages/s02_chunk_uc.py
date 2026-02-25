@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 from shutil import rmtree
+import wave
 from typing import Any
 
 from sruti.application.context import StageContext
@@ -90,16 +91,30 @@ class S02ChunkUseCase:
 
     def _build_chunk_rows(self, chunk_files: list[Path]) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
+        cursor_seconds = 0.0
         for idx, chunk_path in enumerate(chunk_files, start=1):
-            start_time = (idx - 1) * self._seconds
-            end_time = idx * self._seconds
+            start_time = cursor_seconds
+            duration_seconds = self._chunk_duration_seconds(chunk_path)
+            end_time = cursor_seconds + duration_seconds
             rows.append(
                 {
                     "id": idx,
-                    "start_time": start_time,
-                    "end_time": end_time,
+                    "start_time": round(start_time, 3),
+                    "end_time": round(end_time, 3),
                     "filename": chunk_path.name,
                     "sha256": sha256_file(chunk_path),
                 }
             )
+            cursor_seconds = end_time
         return rows
+
+    def _chunk_duration_seconds(self, chunk_path: Path) -> float:
+        try:
+            with wave.open(str(chunk_path), "rb") as wav_file:
+                frame_rate = wav_file.getframerate()
+                if frame_rate <= 0:
+                    return float(self._seconds)
+                return wav_file.getnframes() / float(frame_rate)
+        except (wave.Error, OSError, EOFError):
+            # Fallback keeps deterministic timing even for malformed test fixtures.
+            return float(self._seconds)
