@@ -1,0 +1,64 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from sruti.application.context import StageContext
+from sruti.application.stages.s02_chunk_uc import S02ChunkUseCase
+from sruti.domain.enums import OnExistsMode, StageStatus
+from sruti.infrastructure.fs_repository import FileSystemManifestStore
+from sruti.infrastructure.json_codec import loads
+from sruti.util import manifest as manifest_util
+
+
+class FakeFfmpeg:
+    def segment(self, input_path: Path, output_pattern: Path, *, seconds: int) -> list[str]:
+        _ = (input_path, seconds)
+        output_pattern.parent.mkdir(parents=True, exist_ok=True)
+        for idx in [1, 2]:
+            (output_pattern.parent / f"{idx:04d}.wav").write_bytes(f"chunk-{idx}".encode("utf-8"))
+        return ["ffmpeg", "segment", str(output_pattern)]
+
+
+def _ctx(run_dir: Path, *, mode: OnExistsMode = OnExistsMode.OVERWRITE, dry_run: bool = False) -> StageContext:
+    return StageContext.build(
+        run_dir=run_dir,
+        on_exists=mode,
+        dry_run=dry_run,
+        force=False,
+        verbose=False,
+    )
+
+
+def test_s02_chunk_happy_path(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr("sruti.application.stages.s02_chunk_uc.require_executable", lambda _: None)
+    monkeypatch.setattr("sruti.application.stages.s02_chunk_uc.executable_version", lambda _: "ffmpeg test")
+    s01_dir = manifest_util.stage_dir_for(tmp_path, "s01")
+    s01_dir.mkdir(parents=True, exist_ok=True)
+    (s01_dir / "normalized.wav").write_bytes(b"normalized")
+    use_case = S02ChunkUseCase(
+        seconds=30,
+        ffmpeg=FakeFfmpeg(),
+        manifest_store=FileSystemManifestStore(),
+    )
+    result = use_case.run(_ctx(tmp_path))
+    assert result.status == StageStatus.SUCCESS
+    rows = loads((tmp_path / "s02_chunk" / "chunks.json").read_text(encoding="utf-8"))
+    assert len(rows) == 2
+    assert rows[0]["filename"] == "0001.wav"
+
+
+def test_s02_chunk_skip_when_exists(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr("sruti.application.stages.s02_chunk_uc.require_executable", lambda _: None)
+    s01_dir = manifest_util.stage_dir_for(tmp_path, "s01")
+    s01_dir.mkdir(parents=True, exist_ok=True)
+    (s01_dir / "normalized.wav").write_bytes(b"normalized")
+    s02_dir = manifest_util.stage_dir_for(tmp_path, "s02")
+    s02_dir.mkdir(parents=True, exist_ok=True)
+    (s02_dir / "chunks.json").write_text("[]", encoding="utf-8")
+    use_case = S02ChunkUseCase(
+        seconds=30,
+        ffmpeg=FakeFfmpeg(),
+        manifest_store=FileSystemManifestStore(),
+    )
+    result = use_case.run(_ctx(tmp_path, mode=OnExistsMode.SKIP))
+    assert result.status == StageStatus.SKIPPED

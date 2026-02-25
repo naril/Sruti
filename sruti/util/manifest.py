@@ -74,3 +74,13 @@ def params_signature(params: dict[str, Any]) -> str:
 
     # Keep deterministic signature for resume checks.
     return json.dumps(params, sort_keys=True, ensure_ascii=False)
+
+
+def inputs_signature(paths: list[Path]) -> str:
+    parts: list[str] = []
+    for path in sorted(paths, key=lambda p: str(p)):
+        if path.exists():
+            parts.append(f"{path}:{sha256_file(path)}")
+        else:
+            parts.append(f"{path}:<missing>")
+    return "\n".join(parts)

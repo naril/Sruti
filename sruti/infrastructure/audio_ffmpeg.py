@@ -40,6 +40,8 @@ class FfmpegAdapter:
             "segment",
             "-segment_time",
             str(seconds),
+            "-segment_start_number",
+            "1",
             "-c",
             "copy",
             str(output_pattern),
