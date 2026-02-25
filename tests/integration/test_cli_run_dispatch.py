@@ -5,6 +5,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from sruti.cli import app
+from sruti.config import Settings, load_settings
 from sruti.domain.enums import LlmProvider, StageId, StageStatus
 from sruti.domain.models import StageResult
 
@@ -187,3 +188,57 @@ def test_cli_single_stage_applies_llm_provider_and_caps(monkeypatch, tmp_path: P
     assert observed["cost_cap_usd"] == 0.25
     assert observed["token_cap_input"] == 200
     assert observed["token_cap_output"] == 300
+
+
+def test_cli_init_creates_run_dir_with_default_pipeline(tmp_path: Path) -> None:
+    run_dir = tmp_path / "lecture-001"
+    runner = CliRunner()
+    result = runner.invoke(app, ["init", str(run_dir)])
+    assert result.exit_code == 0, result.stdout
+    assert run_dir.is_dir()
+    assert (run_dir / "pipeline.toml").exists()
+    assert "initialized" in result.stdout
+    assert load_settings(run_dir) == Settings()
+
+
+def test_cli_init_fails_if_pipeline_already_exists(tmp_path: Path) -> None:
+    run_dir = tmp_path / "lecture-002"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "pipeline.toml").write_text("[sruti]\nchunk_seconds = 12\n", encoding="utf-8")
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["init", str(run_dir)])
+
+    assert result.exit_code == 2
+
+
+def test_cli_help_lists_commands_with_short_descriptions() -> None:
+    runner = CliRunner()
+    result = runner.invoke(app, ["--help"])
+
+    assert result.exit_code == 0, result.stdout
+    expected: dict[str, str] = {
+        "init": "Create RUN_DIR and prefill pipeline.toml",
+        "run": "Run a stage range (s01-s09) in order.",
+        "s01-normalize": "s01: Normalize input audio",
+        "s02-chunk": "s02: Split normalized audio",
+        "s03-asr": "s03: Transcribe audio chunks",
+        "s04-merge": "s04: Merge per-chunk transcripts",
+        "s05-asr-cleanup": "s05: LLM cleanup of ASR transcript errors.",
+        "s06-remove-nonlecture": "s06: Remove non-lecture content",
+        "s07-editorial": "s07: Editorially refine English text",
+        "s08-translate": "s08: Faithful English-to-Czech translation.",
+        "s09-translate-edit": "s09: Editorial polish of Czech translation.",
+    }
+    for command, description in expected.items():
+        assert command in result.stdout
+        assert description in result.stdout
+
+
+def test_cli_run_help_describes_from_and_to_options() -> None:
+    runner = CliRunner()
+    result = runner.invoke(app, ["run", "--help"])
+
+    assert result.exit_code == 0, result.stdout
+    assert "Start stage (inclusive)" in result.stdout
+    assert "End stage (inclusive)" in result.stdout

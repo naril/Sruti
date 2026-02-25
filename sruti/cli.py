@@ -5,6 +5,7 @@ from pathlib import Path
 import typer
 
 from sruti.application.context import StageContext
+from sruti.config import render_default_pipeline_toml
 from sruti.domain.enums import LlmProvider, OnExistsMode, StageId
 from sruti.domain.errors import SrutiError
 from sruti.domain.models import StageResult
@@ -119,12 +120,33 @@ def _run_single_stage(
     raise RuntimeError("unreachable")
 
 
-@app.command("run")
+@app.command("init", help="Create RUN_DIR and prefill pipeline.toml with default settings.")
+def init_run_dir(
+    run_dir: Path = typer.Argument(..., file_okay=False, dir_okay=True),
+) -> None:
+    run_dir.mkdir(parents=True, exist_ok=True)
+    config_path = run_dir / "pipeline.toml"
+    if config_path.exists():
+        raise typer.BadParameter(f"{config_path} already exists.")
+    config_path.write_text(render_default_pipeline_toml(), encoding="utf-8")
+    typer.secho(f"initialized {run_dir}", fg=typer.colors.GREEN)
+    typer.echo(f"  - {config_path}")
+
+
+@app.command("run", help="Run a stage range (s01-s09) in order.")
 def run_pipeline(
     run_dir: Path = typer.Argument(..., file_okay=False, dir_okay=True),
     in_path: Path | None = typer.Option(None, "--in"),
-    source_stage: StageId = typer.Option(StageId.S01, "--from"),
-    target_stage: StageId = typer.Option(StageId.S09, "--to"),
+    source_stage: StageId = typer.Option(
+        StageId.S01,
+        "--from",
+        help="Start stage (inclusive), e.g. s01 for full pipeline or s05 to resume mid-run.",
+    ),
+    target_stage: StageId = typer.Option(
+        StageId.S09,
+        "--to",
+        help="End stage (inclusive), e.g. s09 for full pipeline or s07 to stop earlier.",
+    ),
     seconds: int | None = typer.Option(None, "--seconds"),
     model_path: Path | None = typer.Option(None, "--model-path"),
     on_exists: OnExistsMode = typer.Option(OnExistsMode.ASK, "--on-exists"),
@@ -164,7 +186,7 @@ def run_pipeline(
             _handle_failure(exc)
 
 
-@app.command("s01-normalize")
+@app.command("s01-normalize", help="s01: Normalize input audio to deterministic WAV.")
 def run_s01_normalize(
     run_dir: Path = typer.Argument(...),
     in_path: Path = typer.Option(..., "--in"),
@@ -195,7 +217,7 @@ def run_s01_normalize(
         _handle_failure(exc)
 
 
-@app.command("s02-chunk")
+@app.command("s02-chunk", help="s02: Split normalized audio into fixed-length chunks.")
 def run_s02_chunk(
     run_dir: Path = typer.Argument(...),
     seconds: int | None = typer.Option(None, "--seconds"),
@@ -227,7 +249,7 @@ def run_s02_chunk(
         _handle_failure(exc)
 
 
-@app.command("s03-asr")
+@app.command("s03-asr", help="s03: Transcribe audio chunks with whisper-cli.")
 def run_s03_asr(
     run_dir: Path = typer.Argument(...),
     model_path: Path | None = typer.Option(None, "--model-path"),
@@ -267,7 +289,7 @@ def run_s03_asr(
         _handle_failure(exc)
 
 
-@app.command("s04-merge")
+@app.command("s04-merge", help="s04: Merge per-chunk transcripts into one text/SRT.")
 def run_s04_merge(
     run_dir: Path = typer.Argument(...),
     on_exists: OnExistsMode = typer.Option(OnExistsMode.ASK, "--on-exists"),
@@ -297,7 +319,7 @@ def run_s04_merge(
         _handle_failure(exc)
 
 
-@app.command("s05-asr-cleanup")
+@app.command("s05-asr-cleanup", help="s05: LLM cleanup of ASR transcript errors.")
 def run_s05_asr_cleanup(
     run_dir: Path = typer.Argument(...),
     on_exists: OnExistsMode = typer.Option(OnExistsMode.ASK, "--on-exists"),
@@ -327,7 +349,7 @@ def run_s05_asr_cleanup(
         _handle_failure(exc)
 
 
-@app.command("s06-remove-nonlecture")
+@app.command("s06-remove-nonlecture", help="s06: Remove non-lecture content from cleaned text.")
 def run_s06_remove_nonlecture(
     run_dir: Path = typer.Argument(...),
     on_exists: OnExistsMode = typer.Option(OnExistsMode.ASK, "--on-exists"),
@@ -357,7 +379,7 @@ def run_s06_remove_nonlecture(
         _handle_failure(exc)
 
 
-@app.command("s07-editorial")
+@app.command("s07-editorial", help="s07: Editorially refine English text for publishing.")
 def run_s07_editorial(
     run_dir: Path = typer.Argument(...),
     on_exists: OnExistsMode = typer.Option(OnExistsMode.ASK, "--on-exists"),
@@ -387,7 +409,7 @@ def run_s07_editorial(
         _handle_failure(exc)
 
 
-@app.command("s08-translate")
+@app.command("s08-translate", help="s08: Faithful English-to-Czech translation.")
 def run_s08_translate(
     run_dir: Path = typer.Argument(...),
     on_exists: OnExistsMode = typer.Option(OnExistsMode.ASK, "--on-exists"),
@@ -417,7 +439,7 @@ def run_s08_translate(
         _handle_failure(exc)
 
 
-@app.command("s09-translate-edit")
+@app.command("s09-translate-edit", help="s09: Editorial polish of Czech translation.")
 def run_s09_translate_edit(
     run_dir: Path = typer.Argument(...),
     on_exists: OnExistsMode = typer.Option(OnExistsMode.ASK, "--on-exists"),

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import tomllib
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +45,7 @@ class Settings(BaseModel):
     openai_price_input_per_1m: float = 0.25
     openai_price_output_per_1m: float = 2.0
     llm_json_max_retries: int = 3
+    prompt_templates_dir: Path | None = None
     ffmpeg_bin: str = "ffmpeg"
     whisper_cli_bin: str = "whisper-cli"
     ollama_bin: str = "ollama"
@@ -79,4 +82,30 @@ def load_settings(run_dir: Path | None = None) -> Settings:
     # Ignore unrelated keys so run-local config can coexist with other tooling.
     known_keys = set(Settings.model_fields)
     values = {key: value for key, value in values.items() if key in known_keys}
+    if values.get("prompt_templates_dir") == "":
+        values["prompt_templates_dir"] = None
     return Settings.model_validate(values)
+
+
+def _toml_literal(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, Enum):
+        return _toml_literal(value.value)
+    if isinstance(value, Path):
+        return _toml_literal(str(value))
+    if isinstance(value, str):
+        return json.dumps(value)
+    if value is None:
+        return '""'
+    if isinstance(value, (int, float)):
+        return repr(value)
+    raise TypeError(f"Unsupported TOML value type: {type(value)!r}")
+
+
+def render_default_pipeline_toml() -> str:
+    defaults = Settings().model_dump(mode="python")
+    lines = ["[sruti]"]
+    for key in Settings.model_fields:
+        lines.append(f"{key} = {_toml_literal(defaults[key])}")
+    return "\n".join(lines) + "\n"

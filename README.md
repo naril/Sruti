@@ -21,9 +21,11 @@ python3 -m pip install -e .
 
 ## CLI
 
-Main orchestration:
+Bootstrap + full pipeline:
 
 ```bash
+sruti init RUN_DIR
+
 sruti run RUN_DIR \
   --in /absolute/path/lecture.wav \
   --from s01 \
@@ -34,19 +36,72 @@ sruti run RUN_DIR \
   --on-exists overwrite
 ```
 
-Individual stage commands:
+Use `sruti --help` for command list and `sruti <command> --help` for command-specific options.
 
-```bash
-sruti s01-normalize RUN_DIR --in /absolute/path/lecture.wav
-sruti s02-chunk RUN_DIR --seconds 30
-sruti s03-asr RUN_DIR --model-path ./models/ggml-large-v3.bin
-sruti s04-merge RUN_DIR
-sruti s05-asr-cleanup RUN_DIR
-sruti s06-remove-nonlecture RUN_DIR
-sruti s07-editorial RUN_DIR
-sruti s08-translate RUN_DIR
-sruti s09-translate-edit RUN_DIR
-```
+### Command Reference
+
+#### `sruti init RUN_DIR`
+
+Creates `RUN_DIR/` (if needed) and writes `RUN_DIR/pipeline.toml` with all supported keys and
+their default values from `Settings`.
+If `pipeline.toml` already exists, command exits with error and leaves it unchanged.
+
+#### `sruti run RUN_DIR [OPTIONS]`
+
+Runs a continuous stage range in order (`--from s01 --to s09` by default).
+Requires `--in` only when the selected range includes `s01`.
+`--seconds` affects `s02`; `--model-path` affects `s03`.
+This is the recommended orchestration command for normal use.
+Key options:
+
+- `--from sXX`: start stage (inclusive), for example `s05` to resume from cleanup.
+- `--to sXX`: end stage (inclusive), for example `s07` to stop at English editorial output.
+- `--in PATH`: required only when `--from` includes `s01`.
+
+#### `sruti s01-normalize RUN_DIR --in INPUT_AUDIO [OPTIONS]`
+
+Stage `s01`. Normalizes input audio to deterministic WAV output for downstream processing.
+Writes: `s01_normalize/normalized.wav`.
+
+#### `sruti s02-chunk RUN_DIR [--seconds N] [OPTIONS]`
+
+Stage `s02`. Splits normalized audio into fixed-length chunks.
+Writes: `s02_chunk/chunks/*.wav` and `s02_chunk/chunks.json`.
+
+#### `sruti s03-asr RUN_DIR [--model-path MODEL] [OPTIONS]`
+
+Stage `s03`. Runs `whisper-cli` transcription over chunked WAV files.
+Writes: `s03_asr/transcripts/*.txt`, `*.srt`, and `transcripts_index.json`.
+
+#### `sruti s04-merge RUN_DIR [OPTIONS]`
+
+Stage `s04`. Merges per-chunk transcripts into one ordered transcript.
+Writes: `s04_merge/merged_raw.txt` and `s04_merge/merged_raw.srt`.
+
+#### `sruti s05-asr-cleanup RUN_DIR [OPTIONS]`
+
+Stage `s05`. Uses LLM cleanup to fix common ASR errors while preserving meaning.
+Writes: `s05_asr_cleanup/cleaned_1.txt` and `s05_asr_cleanup/edits.jsonl`.
+
+#### `sruti s06-remove-nonlecture RUN_DIR [OPTIONS]`
+
+Stage `s06`. Detects and removes non-lecture segments (ads, chatter, unrelated fragments).
+Writes: `s06_remove_nonlecture/content_only.txt` and `removed_spans.jsonl`.
+
+#### `sruti s07-editorial RUN_DIR [OPTIONS]`
+
+Stage `s07`. Applies editorial rewriting to produce publishable English output.
+Writes: `s07_editorial/final_publishable_en.txt`.
+
+#### `sruti s08-translate RUN_DIR [OPTIONS]`
+
+Stage `s08`. Performs faithful EN->CS translation with minimal editorial drift.
+Writes: `s08_translate/translated_faithful_cs.txt`.
+
+#### `sruti s09-translate-edit RUN_DIR [OPTIONS]`
+
+Stage `s09`. Editorially polishes Czech translation for final publication quality.
+Writes: `s09_translate_edit/final_publishable_cs.txt`.
 
 Shared stage options:
 
@@ -93,6 +148,7 @@ openai_api_key_env = "OPENAI_API_KEY"
 openai_api_key = ""
 openai_model_s05 = "gpt-5-nano"
 openai_model_s07 = "gpt-5-mini"
+prompt_templates_dir = "prompts"
 cost_cap_usd = 2.0
 token_cap_input = 2000000
 token_cap_output = 1000000
@@ -116,7 +172,17 @@ LLM prompts are stored as editable text files in:
 - `sruti/llm/prompt_templates/*.txt`
 
 Placeholders use `{{name}}` syntax (for example `{{text}}`).
-You can also override the template directory at runtime with:
+Template directory resolution order:
+
+1. `prompt_templates_dir` from `RUN_DIR/pipeline.toml`
+2. `SRUTI_PROMPTS_DIR` environment variable
+3. Built-in `sruti/llm/prompt_templates`
+
+`prompt_templates_dir` can be absolute or relative to `RUN_DIR`.
+If the configured directory does not exist, the run fails with `FileNotFoundError`.
+If a template file is missing in the configured directory, `sruti` falls back to the built-in file.
+
+You can also override the template directory at runtime with env:
 
 ```bash
 export SRUTI_PROMPTS_DIR=/absolute/path/to/templates
