@@ -1,16 +1,16 @@
 # sruti
 
-`sruti` is a fully local, modular CLI pipeline that converts lecture audio in English
+`sruti` is a modular CLI pipeline that converts lecture audio in English
 into publication-ready Czech text with deterministic stage outputs.
 
 ## Core Runtime
 
 - ASR: `whisper-cli` (`whisper.cpp`) with `ggml-large-v3.bin`
-- LLM runtime: local `Ollama`
+- LLM runtime: local `Ollama` (default), optional `OpenAI` for `s05-s09`
   - `llama3.1:8b` for conservative cleanup and faithful translation
   - `mistral:7b-instruct` for editorial refinement
 - Audio tools: `ffmpeg`
-- No cloud APIs
+- Cloud APIs are optional and disabled by default.
 
 ## Install
 
@@ -30,6 +30,7 @@ sruti run RUN_DIR \
   --to s09 \
   --seconds 30 \
   --model-path ./models/ggml-large-v3.bin \
+  --llm-provider local \
   --on-exists overwrite
 ```
 
@@ -53,6 +54,10 @@ Shared stage options:
 - `--dry-run`
 - `--force`
 - `--verbose`
+- `--llm-provider local|openai`
+- `--cost-cap-usd FLOAT`
+- `--token-cap-input INT`
+- `--token-cap-output INT`
 
 `--on-exists ask` is interactive-only. In non-TTY contexts use explicit `skip|overwrite|fail`.
 
@@ -81,11 +86,22 @@ Example:
 ```toml
 [sruti]
 chunk_seconds = 30
+llm_provider = "local"
 s05_model = "llama3.1:8b"
 s07_model = "mistral:7b-instruct"
+openai_model_s05 = "gpt-5-nano"
+openai_model_s07 = "gpt-5-mini"
+cost_cap_usd = 2.0
+token_cap_input = 2000000
+token_cap_output = 1000000
 ```
 
 CLI options have highest precedence over defaults.
+
+Progress output:
+
+- Always: run start and stage start/finish with duration.
+- `--verbose`: chunk-level progress (`s03` chunk transcription, `s05/s07/s08/s09` LLM chunk processing, `s06` batch/retry details).
 
 ## Prompt templates
 

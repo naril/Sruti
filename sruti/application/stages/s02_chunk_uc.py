@@ -77,9 +77,11 @@ class S02ChunkUseCase:
                 rmtree(chunks_dir)
             ensure_dir(chunks_dir)
             output_pattern = chunks_dir / "%04d.wav"
+            context.emit_progress("[s02] chunking audio...", verbose_only=True)
             command = self._ffmpeg.segment(input_path, output_pattern, seconds=self._seconds)
             chunk_files = sorted(chunks_dir.glob("*.wav"))
             chunk_rows = self._build_chunk_rows(chunk_files)
+            context.emit_progress(f"[s02] produced {len(chunk_rows)} chunks", verbose_only=True)
             atomic_write_json(chunks_json_path, chunk_rows)
             manifest.commands.append(" ".join(command))
             manifest.inputs = [manifest_util.artifact_for(input_path)]

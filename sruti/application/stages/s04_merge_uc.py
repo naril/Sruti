@@ -63,6 +63,10 @@ class S04MergeUseCase:
             if not isinstance(rows, list):
                 raise ValueError("transcripts_index.json must be a list")
             ordered_rows = sorted(rows, key=lambda item: int(item.get("id", 0)))
+            context.emit_progress(
+                f"[s04] merging transcripts ({len(ordered_rows)} chunks)",
+                verbose_only=True,
+            )
             txt_parts: list[str] = []
             merged_srt_blocks: list[str] = []
             global_srt_index = 1

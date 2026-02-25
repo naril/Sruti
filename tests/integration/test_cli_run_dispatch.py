@@ -5,7 +5,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from sruti.cli import app
-from sruti.domain.enums import StageId, StageStatus
+from sruti.domain.enums import LlmProvider, StageId, StageStatus
 from sruti.domain.models import StageResult
 
 
@@ -100,3 +100,49 @@ default_whisper_model_path = "models/custom.bin"
     assert result.exit_code == 0, result.stdout
     assert observed["seconds"] == 17
     assert observed["model_path"] == Path("models/custom.bin")
+
+
+def test_cli_run_applies_llm_provider_and_cap_overrides(monkeypatch, tmp_path: Path) -> None:
+    observed: dict[str, object] = {}
+
+    def fake_s05_run_stage(**kwargs):
+        context = kwargs["context"]
+        observed["llm_provider"] = context.settings.llm_provider
+        observed["cost_cap_usd"] = context.settings.cost_cap_usd
+        observed["token_cap_input"] = context.settings.token_cap_input
+        observed["token_cap_output"] = context.settings.token_cap_output
+        stage_dir = context.run_dir / "s05_fake"
+        stage_dir.mkdir(parents=True, exist_ok=True)
+        return StageResult(stage=StageId.S05, status=StageStatus.SUCCESS, stage_dir=stage_dir, outputs=[])
+
+    monkeypatch.setattr("sruti.cli.s05_asr_cleanup.run_stage", fake_s05_run_stage)
+
+    run_dir = tmp_path / "run3"
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            str(run_dir),
+            "--from",
+            "s05",
+            "--to",
+            "s05",
+            "--llm-provider",
+            "openai",
+            "--cost-cap-usd",
+            "0.5",
+            "--token-cap-input",
+            "1234",
+            "--token-cap-output",
+            "4321",
+            "--on-exists",
+            "overwrite",
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    assert "[run] starting: s05->s05 in" in result.stdout
+    assert observed["llm_provider"] is LlmProvider.OPENAI
+    assert observed["cost_cap_usd"] == 0.5
+    assert observed["token_cap_input"] == 1234
+    assert observed["token_cap_output"] == 4321

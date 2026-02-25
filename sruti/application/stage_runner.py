@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
@@ -57,19 +58,29 @@ class StageRuntime:
     def start(self, manifest: StageManifest) -> None:
         ensure_dir(self.stage_dir)
         manifest.status = StageStatus.RUNNING
+        manifest.started_at = manifest_util.utc_now_iso()
         manifest.finished_at = None
         self.manifest_store.save_stage_manifest(self.stage_dir, manifest)
+        self.context.emit_progress(f"[{self.stage_id.value}] started")
 
     def mark_dry_run(self, manifest: StageManifest) -> StageResult:
+        self.context.emit_progress(f"[{self.stage_id.value}] started")
         manifest.status = StageStatus.DRY_RUN
         manifest.finished_at = manifest_util.utc_now_iso()
         self.manifest_store.save_stage_manifest(self.stage_dir, manifest)
+        self.context.emit_progress(
+            f"[{self.stage_id.value}] dry_run (duration: {self._duration_seconds(manifest):.1f}s)"
+        )
         return StageResult(stage=self.stage_id, status=StageStatus.DRY_RUN, stage_dir=self.stage_dir)
 
     def mark_skipped(self, manifest: StageManifest) -> StageResult:
+        self.context.emit_progress(f"[{self.stage_id.value}] started")
         manifest.status = StageStatus.SKIPPED
         manifest.finished_at = manifest_util.utc_now_iso()
         self.manifest_store.save_stage_manifest(self.stage_dir, manifest)
+        self.context.emit_progress(
+            f"[{self.stage_id.value}] skipped (duration: {self._duration_seconds(manifest):.1f}s)"
+        )
         return StageResult(stage=self.stage_id, status=StageStatus.SKIPPED, stage_dir=self.stage_dir)
 
     def mark_success(
@@ -82,6 +93,9 @@ class StageRuntime:
         manifest.finished_at = manifest_util.utc_now_iso()
         manifest.outputs = manifest_util.artifacts_for_existing(output_paths)
         self.manifest_store.save_stage_manifest(self.stage_dir, manifest)
+        self.context.emit_progress(
+            f"[{self.stage_id.value}] success (duration: {self._duration_seconds(manifest):.1f}s)"
+        )
         return StageResult(
             stage=self.stage_id,
             status=StageStatus.SUCCESS,
@@ -94,3 +108,15 @@ class StageRuntime:
         manifest.finished_at = manifest_util.utc_now_iso()
         manifest.errors.append(error_message)
         self.manifest_store.save_stage_manifest(self.stage_dir, manifest)
+        self.context.emit_progress(
+            f"[{self.stage_id.value}] failed (duration: {self._duration_seconds(manifest):.1f}s)"
+        )
+
+    def _duration_seconds(self, manifest: StageManifest) -> float:
+        try:
+            started_at = datetime.fromisoformat(manifest.started_at)
+            finished_raw = manifest.finished_at or manifest_util.utc_now_iso()
+            finished_at = datetime.fromisoformat(finished_raw)
+            return max(0.0, (finished_at - started_at).total_seconds())
+        except ValueError:
+            return 0.0

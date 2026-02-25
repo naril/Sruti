@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Callable
 
 from sruti.config import Settings, load_settings
-from sruti.domain.enums import OnExistsMode
+from sruti.domain.enums import LlmProvider, OnExistsMode
+
+
+def _noop_progress(_: str) -> None:
+    return
 
 
 @dataclass(frozen=True)
@@ -17,6 +22,7 @@ class StageContext:
     force: bool
     verbose: bool
     is_tty: bool
+    progress_emitter: Callable[[str], None] = _noop_progress
 
     @classmethod
     def build(
@@ -27,8 +33,24 @@ class StageContext:
         dry_run: bool,
         force: bool,
         verbose: bool,
+        llm_provider_override: LlmProvider | None = None,
+        cost_cap_usd_override: float | None = None,
+        token_cap_input_override: int | None = None,
+        token_cap_output_override: int | None = None,
+        progress_emitter: Callable[[str], None] | None = None,
     ) -> "StageContext":
         settings = load_settings(run_dir=run_dir)
+        override_values: dict[str, object] = {}
+        if llm_provider_override is not None:
+            override_values["llm_provider"] = llm_provider_override
+        if cost_cap_usd_override is not None:
+            override_values["cost_cap_usd"] = cost_cap_usd_override
+        if token_cap_input_override is not None:
+            override_values["token_cap_input"] = token_cap_input_override
+        if token_cap_output_override is not None:
+            override_values["token_cap_output"] = token_cap_output_override
+        if override_values:
+            settings = settings.model_copy(update=override_values)
         return cls(
             run_dir=run_dir,
             settings=settings,
@@ -37,4 +59,13 @@ class StageContext:
             force=force,
             verbose=verbose,
             is_tty=sys.stdin.isatty(),
+            progress_emitter=progress_emitter or _noop_progress,
         )
+
+    def with_progress_emitter(self, progress_emitter: Callable[[str], None]) -> "StageContext":
+        return replace(self, progress_emitter=progress_emitter)
+
+    def emit_progress(self, message: str, *, verbose_only: bool = False) -> None:
+        if verbose_only and not self.verbose:
+            return
+        self.progress_emitter(message)

@@ -5,7 +5,7 @@ from pathlib import Path
 import typer
 
 from sruti.application.context import StageContext
-from sruti.domain.enums import OnExistsMode, StageId
+from sruti.domain.enums import LlmProvider, OnExistsMode, StageId
 from sruti.domain.errors import SrutiError
 from sruti.domain.models import StageResult
 from sruti.domain.policies import stage_ids_in_range
@@ -33,6 +33,10 @@ def _ask_user(prompt: str) -> bool:
     return typer.confirm(prompt, default=False)
 
 
+def _emit_progress(message: str) -> None:
+    typer.echo(message)
+
+
 def _stage_context(
     *,
     run_dir: Path,
@@ -40,6 +44,10 @@ def _stage_context(
     dry_run: bool,
     force: bool,
     verbose: bool,
+    llm_provider: LlmProvider | None,
+    cost_cap_usd: float | None,
+    token_cap_input: int | None,
+    token_cap_output: int | None,
 ) -> StageContext:
     return StageContext.build(
         run_dir=run_dir,
@@ -47,11 +55,15 @@ def _stage_context(
         dry_run=dry_run,
         force=force,
         verbose=verbose,
+        llm_provider_override=llm_provider,
+        cost_cap_usd_override=cost_cap_usd,
+        token_cap_input_override=token_cap_input,
+        token_cap_output_override=token_cap_output,
+        progress_emitter=_emit_progress,
     )
 
 
 def _print_result(result: StageResult) -> None:
-    typer.secho(f"[{result.stage.value}] {result.status.value}", fg=typer.colors.GREEN)
     if result.outputs:
         for output in result.outputs:
             typer.echo(f"  - {output}")
@@ -117,6 +129,10 @@ def run_pipeline(
     dry_run: bool = typer.Option(False, "--dry-run"),
     force: bool = typer.Option(False, "--force"),
     verbose: bool = typer.Option(False, "--verbose"),
+    llm_provider: LlmProvider | None = typer.Option(None, "--llm-provider"),
+    cost_cap_usd: float | None = typer.Option(None, "--cost-cap-usd"),
+    token_cap_input: int | None = typer.Option(None, "--token-cap-input"),
+    token_cap_output: int | None = typer.Option(None, "--token-cap-output"),
 ) -> None:
     context = _stage_context(
         run_dir=run_dir,
@@ -124,6 +140,13 @@ def run_pipeline(
         dry_run=dry_run,
         force=force,
         verbose=verbose,
+        llm_provider=llm_provider,
+        cost_cap_usd=cost_cap_usd,
+        token_cap_input=token_cap_input,
+        token_cap_output=token_cap_output,
+    )
+    context.emit_progress(
+        f"[run] starting: {source_stage.value}->{target_stage.value} in {run_dir}"
     )
     for stage_id in stage_ids_in_range(source_stage, target_stage):
         try:
@@ -147,6 +170,10 @@ def run_s01_normalize(
     dry_run: bool = typer.Option(False, "--dry-run"),
     force: bool = typer.Option(False, "--force"),
     verbose: bool = typer.Option(False, "--verbose"),
+    llm_provider: LlmProvider | None = typer.Option(None, "--llm-provider"),
+    cost_cap_usd: float | None = typer.Option(None, "--cost-cap-usd"),
+    token_cap_input: int | None = typer.Option(None, "--token-cap-input"),
+    token_cap_output: int | None = typer.Option(None, "--token-cap-output"),
 ) -> None:
     context = _stage_context(
         run_dir=run_dir,
@@ -154,6 +181,10 @@ def run_s01_normalize(
         dry_run=dry_run,
         force=force,
         verbose=verbose,
+        llm_provider=llm_provider,
+        cost_cap_usd=cost_cap_usd,
+        token_cap_input=token_cap_input,
+        token_cap_output=token_cap_output,
     )
     try:
         result = s01_normalize.run_stage(context=context, input_audio=in_path, ask_user=_ask_user)
@@ -170,6 +201,10 @@ def run_s02_chunk(
     dry_run: bool = typer.Option(False, "--dry-run"),
     force: bool = typer.Option(False, "--force"),
     verbose: bool = typer.Option(False, "--verbose"),
+    llm_provider: LlmProvider | None = typer.Option(None, "--llm-provider"),
+    cost_cap_usd: float | None = typer.Option(None, "--cost-cap-usd"),
+    token_cap_input: int | None = typer.Option(None, "--token-cap-input"),
+    token_cap_output: int | None = typer.Option(None, "--token-cap-output"),
 ) -> None:
     context = _stage_context(
         run_dir=run_dir,
@@ -177,6 +212,10 @@ def run_s02_chunk(
         dry_run=dry_run,
         force=force,
         verbose=verbose,
+        llm_provider=llm_provider,
+        cost_cap_usd=cost_cap_usd,
+        token_cap_input=token_cap_input,
+        token_cap_output=token_cap_output,
     )
     try:
         effective_seconds = seconds if seconds is not None else context.settings.chunk_seconds
@@ -194,6 +233,10 @@ def run_s03_asr(
     dry_run: bool = typer.Option(False, "--dry-run"),
     force: bool = typer.Option(False, "--force"),
     verbose: bool = typer.Option(False, "--verbose"),
+    llm_provider: LlmProvider | None = typer.Option(None, "--llm-provider"),
+    cost_cap_usd: float | None = typer.Option(None, "--cost-cap-usd"),
+    token_cap_input: int | None = typer.Option(None, "--token-cap-input"),
+    token_cap_output: int | None = typer.Option(None, "--token-cap-output"),
 ) -> None:
     context = _stage_context(
         run_dir=run_dir,
@@ -201,6 +244,10 @@ def run_s03_asr(
         dry_run=dry_run,
         force=force,
         verbose=verbose,
+        llm_provider=llm_provider,
+        cost_cap_usd=cost_cap_usd,
+        token_cap_input=token_cap_input,
+        token_cap_output=token_cap_output,
     )
     try:
         effective_model_path = (
@@ -225,6 +272,10 @@ def run_s04_merge(
     dry_run: bool = typer.Option(False, "--dry-run"),
     force: bool = typer.Option(False, "--force"),
     verbose: bool = typer.Option(False, "--verbose"),
+    llm_provider: LlmProvider | None = typer.Option(None, "--llm-provider"),
+    cost_cap_usd: float | None = typer.Option(None, "--cost-cap-usd"),
+    token_cap_input: int | None = typer.Option(None, "--token-cap-input"),
+    token_cap_output: int | None = typer.Option(None, "--token-cap-output"),
 ) -> None:
     context = _stage_context(
         run_dir=run_dir,
@@ -232,6 +283,10 @@ def run_s04_merge(
         dry_run=dry_run,
         force=force,
         verbose=verbose,
+        llm_provider=llm_provider,
+        cost_cap_usd=cost_cap_usd,
+        token_cap_input=token_cap_input,
+        token_cap_output=token_cap_output,
     )
     try:
         result = s04_merge.run_stage(context=context, ask_user=_ask_user)
@@ -247,6 +302,10 @@ def run_s05_asr_cleanup(
     dry_run: bool = typer.Option(False, "--dry-run"),
     force: bool = typer.Option(False, "--force"),
     verbose: bool = typer.Option(False, "--verbose"),
+    llm_provider: LlmProvider | None = typer.Option(None, "--llm-provider"),
+    cost_cap_usd: float | None = typer.Option(None, "--cost-cap-usd"),
+    token_cap_input: int | None = typer.Option(None, "--token-cap-input"),
+    token_cap_output: int | None = typer.Option(None, "--token-cap-output"),
 ) -> None:
     context = _stage_context(
         run_dir=run_dir,
@@ -254,6 +313,10 @@ def run_s05_asr_cleanup(
         dry_run=dry_run,
         force=force,
         verbose=verbose,
+        llm_provider=llm_provider,
+        cost_cap_usd=cost_cap_usd,
+        token_cap_input=token_cap_input,
+        token_cap_output=token_cap_output,
     )
     try:
         result = s05_asr_cleanup.run_stage(context=context, ask_user=_ask_user)
@@ -269,6 +332,10 @@ def run_s06_remove_nonlecture(
     dry_run: bool = typer.Option(False, "--dry-run"),
     force: bool = typer.Option(False, "--force"),
     verbose: bool = typer.Option(False, "--verbose"),
+    llm_provider: LlmProvider | None = typer.Option(None, "--llm-provider"),
+    cost_cap_usd: float | None = typer.Option(None, "--cost-cap-usd"),
+    token_cap_input: int | None = typer.Option(None, "--token-cap-input"),
+    token_cap_output: int | None = typer.Option(None, "--token-cap-output"),
 ) -> None:
     context = _stage_context(
         run_dir=run_dir,
@@ -276,6 +343,10 @@ def run_s06_remove_nonlecture(
         dry_run=dry_run,
         force=force,
         verbose=verbose,
+        llm_provider=llm_provider,
+        cost_cap_usd=cost_cap_usd,
+        token_cap_input=token_cap_input,
+        token_cap_output=token_cap_output,
     )
     try:
         result = s06_remove_nonlecture.run_stage(context=context, ask_user=_ask_user)
@@ -291,6 +362,10 @@ def run_s07_editorial(
     dry_run: bool = typer.Option(False, "--dry-run"),
     force: bool = typer.Option(False, "--force"),
     verbose: bool = typer.Option(False, "--verbose"),
+    llm_provider: LlmProvider | None = typer.Option(None, "--llm-provider"),
+    cost_cap_usd: float | None = typer.Option(None, "--cost-cap-usd"),
+    token_cap_input: int | None = typer.Option(None, "--token-cap-input"),
+    token_cap_output: int | None = typer.Option(None, "--token-cap-output"),
 ) -> None:
     context = _stage_context(
         run_dir=run_dir,
@@ -298,6 +373,10 @@ def run_s07_editorial(
         dry_run=dry_run,
         force=force,
         verbose=verbose,
+        llm_provider=llm_provider,
+        cost_cap_usd=cost_cap_usd,
+        token_cap_input=token_cap_input,
+        token_cap_output=token_cap_output,
     )
     try:
         result = s07_editorial.run_stage(context=context, ask_user=_ask_user)
@@ -313,6 +392,10 @@ def run_s08_translate(
     dry_run: bool = typer.Option(False, "--dry-run"),
     force: bool = typer.Option(False, "--force"),
     verbose: bool = typer.Option(False, "--verbose"),
+    llm_provider: LlmProvider | None = typer.Option(None, "--llm-provider"),
+    cost_cap_usd: float | None = typer.Option(None, "--cost-cap-usd"),
+    token_cap_input: int | None = typer.Option(None, "--token-cap-input"),
+    token_cap_output: int | None = typer.Option(None, "--token-cap-output"),
 ) -> None:
     context = _stage_context(
         run_dir=run_dir,
@@ -320,6 +403,10 @@ def run_s08_translate(
         dry_run=dry_run,
         force=force,
         verbose=verbose,
+        llm_provider=llm_provider,
+        cost_cap_usd=cost_cap_usd,
+        token_cap_input=token_cap_input,
+        token_cap_output=token_cap_output,
     )
     try:
         result = s08_translate_faithful.run_stage(context=context, ask_user=_ask_user)
@@ -335,6 +422,10 @@ def run_s09_translate_edit(
     dry_run: bool = typer.Option(False, "--dry-run"),
     force: bool = typer.Option(False, "--force"),
     verbose: bool = typer.Option(False, "--verbose"),
+    llm_provider: LlmProvider | None = typer.Option(None, "--llm-provider"),
+    cost_cap_usd: float | None = typer.Option(None, "--cost-cap-usd"),
+    token_cap_input: int | None = typer.Option(None, "--token-cap-input"),
+    token_cap_output: int | None = typer.Option(None, "--token-cap-output"),
 ) -> None:
     context = _stage_context(
         run_dir=run_dir,
@@ -342,6 +433,10 @@ def run_s09_translate_edit(
         dry_run=dry_run,
         force=force,
         verbose=verbose,
+        llm_provider=llm_provider,
+        cost_cap_usd=cost_cap_usd,
+        token_cap_input=token_cap_input,
+        token_cap_output=token_cap_output,
     )
     try:
         result = s09_translate_edit.run_stage(context=context, ask_user=_ask_user)

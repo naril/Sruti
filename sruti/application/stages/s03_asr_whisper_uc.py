@@ -79,10 +79,15 @@ class S03AsrWhisperUseCase:
 
             index_rows: list[dict[str, Any]] = []
             output_paths: list[Path] = [index_json_path]
-            for row in rows:
+            total_chunks = len(rows)
+            for position, row in enumerate(rows, start=1):
                 chunk_file = s02_dir / "chunks" / row["filename"]
                 chunk_id = int(row["id"])
                 prefix = transcripts_dir / f"{chunk_id:04d}"
+                context.emit_progress(
+                    f"[s03] transcribing chunk {position}/{total_chunks}: {row['filename']}",
+                    verbose_only=True,
+                )
                 command = self._whisper.transcribe_chunk(
                     model_path=self._whisper_model_path,
                     chunk_path=chunk_file,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 from sruti.application.context import StageContext
@@ -35,13 +36,14 @@ class ResumeManifestStore(ManifestStore):
         self._manifest = manifest
 
 
-def _ctx(run_dir: Path) -> StageContext:
+def _ctx(run_dir: Path, *, emitter: Callable[[str], None] | None = None) -> StageContext:
     return StageContext.build(
         run_dir=run_dir,
         on_exists=OnExistsMode.OVERWRITE,
         dry_run=False,
         force=False,
         verbose=False,
+        progress_emitter=emitter,
     )
 
 
@@ -84,3 +86,20 @@ def test_stage_runtime_should_skip_only_for_matching_success_manifest(tmp_path: 
     assert not runtime.should_skip(
         params={"flag": 1, "_inputs_signature": "abc"}, inputs_signature="changed"
     )
+
+
+def test_stage_runtime_emits_start_and_terminal_progress(tmp_path: Path) -> None:
+    events: list[str] = []
+    store = MemoryManifestStore()
+    runtime = StageRuntime(
+        context=_ctx(tmp_path, emitter=events.append),
+        stage_id=StageId.S02,
+        stage_dir=tmp_path / "s02_chunk",
+        expected_outputs=[],
+        manifest_store=store,
+    )
+    manifest = runtime.initialize_manifest(params={})
+    runtime.start(manifest)
+    runtime.mark_success(manifest, output_paths=[])
+    assert events[0] == "[s02] started"
+    assert events[1].startswith("[s02] success (duration:")
