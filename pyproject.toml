@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sruti"
+version = "0.1.0"
+description = "Local CLI pipeline for lecture transcription and EN->CS publishing workflow."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "typer>=0.12.0",
+  "pydantic>=2.8.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2.0",
+  "pytest-mock>=3.14.0",
+  "mypy>=1.11.0",
+  "ruff>=0.5.0",
+]
+fastjson = ["orjson>=3.10.0"]
+
+[project.scripts]
+sruti = "sruti.cli:app"
+
+[tool.setuptools]
+packages = ["sruti"]
+
+[tool.setuptools.package-dir]
+"" = "."
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+strict_equality = true
+show_error_codes = true
