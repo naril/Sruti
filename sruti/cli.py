@@ -8,7 +8,14 @@ from sruti.application.context import StageContext
 from sruti.domain.enums import OnExistsMode, StageId
 from sruti.domain.models import StageResult
 from sruti.domain.policies import stage_ids_in_range
-from sruti.stages import s01_normalize, s02_chunk, s03_asr_whispercli
+from sruti.stages import (
+    s01_normalize,
+    s02_chunk,
+    s03_asr_whispercli,
+    s04_merge,
+    s05_asr_cleanup,
+    s06_remove_nonlecture,
+)
 
 app = typer.Typer(no_args_is_help=True, help="sruti: local lecture pipeline")
 
@@ -66,6 +73,12 @@ def _run_single_stage(
             model_path=model_path,
             ask_user=_ask_user,
         )
+    if stage_id is StageId.S04:
+        return s04_merge.run_stage(context=context, ask_user=_ask_user)
+    if stage_id is StageId.S05:
+        return s05_asr_cleanup.run_stage(context=context, ask_user=_ask_user)
+    if stage_id is StageId.S06:
+        return s06_remove_nonlecture.run_stage(context=context, ask_user=_ask_user)
     _not_implemented(stage_id.value)
     raise RuntimeError("unreachable")
 
@@ -166,18 +179,60 @@ def run_s03_asr(
 
 
 @app.command("s04-merge")
-def s04_merge(_: Path = typer.Argument(...)) -> None:
-    _not_implemented("s04")
+def run_s04_merge(
+    run_dir: Path = typer.Argument(...),
+    on_exists: OnExistsMode = typer.Option(OnExistsMode.ASK, "--on-exists"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+    force: bool = typer.Option(False, "--force"),
+    verbose: bool = typer.Option(False, "--verbose"),
+) -> None:
+    context = _stage_context(
+        run_dir=run_dir,
+        on_exists=on_exists,
+        dry_run=dry_run,
+        force=force,
+        verbose=verbose,
+    )
+    result = s04_merge.run_stage(context=context, ask_user=_ask_user)
+    _print_result(result)
 
 
 @app.command("s05-asr-cleanup")
-def s05_asr_cleanup(_: Path = typer.Argument(...)) -> None:
-    _not_implemented("s05")
+def run_s05_asr_cleanup(
+    run_dir: Path = typer.Argument(...),
+    on_exists: OnExistsMode = typer.Option(OnExistsMode.ASK, "--on-exists"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+    force: bool = typer.Option(False, "--force"),
+    verbose: bool = typer.Option(False, "--verbose"),
+) -> None:
+    context = _stage_context(
+        run_dir=run_dir,
+        on_exists=on_exists,
+        dry_run=dry_run,
+        force=force,
+        verbose=verbose,
+    )
+    result = s05_asr_cleanup.run_stage(context=context, ask_user=_ask_user)
+    _print_result(result)
 
 
 @app.command("s06-remove-nonlecture")
-def s06_remove_nonlecture(_: Path = typer.Argument(...)) -> None:
-    _not_implemented("s06")
+def run_s06_remove_nonlecture(
+    run_dir: Path = typer.Argument(...),
+    on_exists: OnExistsMode = typer.Option(OnExistsMode.ASK, "--on-exists"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+    force: bool = typer.Option(False, "--force"),
+    verbose: bool = typer.Option(False, "--verbose"),
+) -> None:
+    context = _stage_context(
+        run_dir=run_dir,
+        on_exists=on_exists,
+        dry_run=dry_run,
+        force=force,
+        verbose=verbose,
+    )
+    result = s06_remove_nonlecture.run_stage(context=context, ask_user=_ask_user)
+    _print_result(result)
 
 
 @app.command("s07-editorial")

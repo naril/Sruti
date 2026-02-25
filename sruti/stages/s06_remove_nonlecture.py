@@ -1,1 +1,22 @@
-"""s06_remove_nonlecture.py"""
+from __future__ import annotations
+
+from collections.abc import Callable
+
+from sruti.application.context import StageContext
+from sruti.application.stages.s06_remove_nonlecture_uc import S06RemoveNonLectureUseCase
+from sruti.domain.models import StageResult
+from sruti.infrastructure.fs_repository import FileSystemManifestStore
+from sruti.infrastructure.llm_ollama import OllamaClient
+
+
+def run_stage(
+    *,
+    context: StageContext,
+    ask_user: Callable[[str], bool] | None = None,
+) -> StageResult:
+    use_case = S06RemoveNonLectureUseCase(
+        ollama=OllamaClient(),
+        manifest_store=FileSystemManifestStore(),
+        ask_user=ask_user,
+    )
+    return use_case.run(context)
