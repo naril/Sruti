@@ -39,6 +39,23 @@ class _SdkClient:
         self.responses = _Responses(calls)
 
 
+class _CaptureSdkClient:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+        self.responses = self
+        self._attempt = 0
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        self._attempt += 1
+        if self._attempt == 1:
+            raise Exception(
+                "Error code: 400 - {'error': {'message': \"Unsupported parameter: 'temperature' is not "
+                "supported with this model.\"}}"
+            )
+        return _Response("ok")
+
+
 def test_openai_client_generate_parses_text_and_usage() -> None:
     sdk = _SdkClient([_Response("ok", input_tokens=12, output_tokens=8)])
     client = OpenAIClient(
@@ -142,3 +159,20 @@ def test_openai_client_env_key_has_priority_over_config(monkeypatch) -> None:
         client=None,
     )
     assert captured["api_key"] == "env-key"
+
+
+def test_openai_client_retries_without_temperature_when_model_rejects_it() -> None:
+    sdk = _CaptureSdkClient()
+    client = OpenAIClient(
+        api_key_env="OPENAI_API_KEY",
+        api_key="",
+        base_url="",
+        timeout_seconds=30,
+        max_retries=1,
+        client=sdk,
+    )
+    result = client.generate(model="gpt-5-nano", prompt="hello", temperature=0.1)
+    assert result.text == "ok"
+    assert len(sdk.calls) == 2
+    assert "temperature" in sdk.calls[0]
+    assert "temperature" not in sdk.calls[1]

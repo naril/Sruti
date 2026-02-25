@@ -69,14 +69,18 @@ class OpenAIClient:
         self.ensure_model_available(model)
         effective_timeout = timeout_seconds if timeout_seconds is not None else self._timeout_seconds
         last_error: Exception | None = None
+        send_temperature = True
         for attempt in range(self._max_retries + 1):
             try:
-                response = self._client.responses.create(
-                    model=model,
-                    input=prompt,
-                    temperature=temperature,
-                    timeout=effective_timeout,
-                )
+                request_kwargs: dict[str, Any] = {
+                    "model": model,
+                    "input": prompt,
+                    "timeout": effective_timeout,
+                }
+                if send_temperature:
+                    request_kwargs["temperature"] = temperature
+
+                response = self._client.responses.create(**request_kwargs)
                 text = self._response_text(response).strip()
                 if not text:
                     raise StageExecutionError("OpenAI response did not include output text.")
@@ -87,6 +91,9 @@ class OpenAIClient:
                     usage_output_tokens=self._usage_tokens(usage, "output_tokens"),
                 )
             except Exception as exc:  # pragma: no cover - exact SDK exception classes vary by version
+                if send_temperature and self._is_unsupported_temperature_error(exc):
+                    send_temperature = False
+                    continue
                 last_error = exc
                 if not self._is_retryable(exc) or attempt == self._max_retries:
                     break
@@ -122,3 +129,7 @@ class OpenAIClient:
                 return True
         message = str(exc).lower()
         return "timeout" in message or "temporar" in message or "connection" in message
+
+    def _is_unsupported_temperature_error(self, exc: Exception) -> bool:
+        message = str(exc).lower()
+        return "temperature" in message and "not supported" in message
