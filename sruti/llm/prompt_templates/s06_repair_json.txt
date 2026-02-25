@@ -1,0 +1,8 @@
+Fix the following response so it is valid JSON matching the required schema.
+Return JSON only.
+
+Original prompt:
+{{original_prompt}}
+
+Bad response:
+{{bad_response}}

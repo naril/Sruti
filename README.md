@@ -87,6 +87,19 @@ s07_model = "mistral:7b-instruct"
 
 CLI options have highest precedence over defaults.
 
+## Prompt templates
+
+LLM prompts are stored as editable text files in:
+
+- `sruti/llm/prompt_templates/*.txt`
+
+Placeholders use `{{name}}` syntax (for example `{{text}}`).
+You can also override the template directory at runtime with:
+
+```bash
+export SRUTI_PROMPTS_DIR=/absolute/path/to/templates
+```
+
 ## Testing
 
 Project contains:
