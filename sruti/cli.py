@@ -20,8 +20,9 @@ from sruti.stages import (
     s05_asr_cleanup,
     s06_remove_nonlecture,
     s07_editorial,
-    s08_translate_faithful,
-    s09_translate_edit,
+    s08_condense,
+    s09_translate_faithful,
+    s10_translate_edit,
 )
 from sruti.util.io import atomic_write_json
 
@@ -248,9 +249,11 @@ def _run_single_stage(
     if stage_id is StageId.S07:
         return s07_editorial.run_stage(context=context, ask_user=_ask_user)
     if stage_id is StageId.S08:
-        return s08_translate_faithful.run_stage(context=context, ask_user=_ask_user)
+        return s08_condense.run_stage(context=context, ask_user=_ask_user)
     if stage_id is StageId.S09:
-        return s09_translate_edit.run_stage(context=context, ask_user=_ask_user)
+        return s09_translate_faithful.run_stage(context=context, ask_user=_ask_user)
+    if stage_id is StageId.S10:
+        return s10_translate_edit.run_stage(context=context, ask_user=_ask_user)
     raise RuntimeError("unreachable")
 
 
@@ -267,7 +270,7 @@ def init_run_dir(
     typer.echo(f"  - {config_path}")
 
 
-@app.command("run", help="Run a stage range (s01-s09) in order.")
+@app.command("run", help="Run a stage range (s01-s10) in order.")
 def run_pipeline(
     run_dir: Path = typer.Argument(..., file_okay=False, dir_okay=True),
     in_path: Path | None = typer.Option(None, "--in"),
@@ -277,9 +280,9 @@ def run_pipeline(
         help="Start stage (inclusive), e.g. s01 for full pipeline or s05 to resume mid-run.",
     ),
     target_stage: StageId = typer.Option(
-        StageId.S09,
+        StageId.S10,
         "--to",
-        help="End stage (inclusive), e.g. s09 for full pipeline or s07 to stop earlier.",
+        help="End stage (inclusive), e.g. s10 for full pipeline or s07 to stop earlier.",
     ),
     seconds: int | None = typer.Option(None, "--seconds"),
     model_path: Path | None = typer.Option(None, "--model-path"),
@@ -319,7 +322,7 @@ def run_pipeline(
 
 @app.command(
     "run-batch",
-    help="Run a stage range (s01-s09) over all audio files in INPUT_DIR recursively.",
+    help="Run a stage range (s01-s10) over all audio files in INPUT_DIR recursively.",
 )
 def run_batch(
     runs_root: Path = typer.Argument(..., file_okay=False, dir_okay=True),
@@ -330,9 +333,9 @@ def run_batch(
         help="Start stage (inclusive), e.g. s01 for full pipeline or s05 to resume mid-run.",
     ),
     target_stage: StageId = typer.Option(
-        StageId.S09,
+        StageId.S10,
         "--to",
-        help="End stage (inclusive), e.g. s09 for full pipeline or s07 to stop earlier.",
+        help="End stage (inclusive), e.g. s10 for full pipeline or s07 to stop earlier.",
     ),
     seconds: int | None = typer.Option(None, "--seconds"),
     model_path: Path | None = typer.Option(None, "--model-path"),
@@ -644,8 +647,8 @@ def run_s07_editorial(
         _handle_failure(exc)
 
 
-@app.command("s08-translate", help="s08: Faithful English-to-Czech translation.")
-def run_s08_translate(
+@app.command("s08-condense", help="s08: Lightly condense English text into structured blocks.")
+def run_s08_condense(
     run_dir: Path = typer.Argument(...),
     on_exists: OnExistsMode = typer.Option(OnExistsMode.ASK, "--on-exists"),
     dry_run: bool = typer.Option(False, "--dry-run"),
@@ -655,7 +658,7 @@ def run_s08_translate(
     cost_cap_usd: float | None = typer.Option(None, "--cost-cap-usd"),
     token_cap_input: int | None = typer.Option(None, "--token-cap-input"),
     token_cap_output: int | None = typer.Option(None, "--token-cap-output"),
-) -> None:
+    ) -> None:
     context = _stage_context(
         run_dir=run_dir,
         on_exists=on_exists,
@@ -668,14 +671,44 @@ def run_s08_translate(
         token_cap_output=token_cap_output,
     )
     try:
-        result = s08_translate_faithful.run_stage(context=context, ask_user=_ask_user)
+        result = s08_condense.run_stage(context=context, ask_user=_ask_user)
         _print_result(result, include_status=False)
     except Exception as exc:
         _handle_failure(exc)
 
 
-@app.command("s09-translate-edit", help="s09: Editorial polish of Czech translation.")
-def run_s09_translate_edit(
+@app.command("s09-translate", help="s09: Faithful English-to-Czech translation.")
+def run_s09_translate(
+    run_dir: Path = typer.Argument(...),
+    on_exists: OnExistsMode = typer.Option(OnExistsMode.ASK, "--on-exists"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+    force: bool = typer.Option(False, "--force"),
+    verbose: bool = typer.Option(False, "--verbose"),
+    llm_provider: LlmProvider | None = typer.Option(None, "--llm-provider"),
+    cost_cap_usd: float | None = typer.Option(None, "--cost-cap-usd"),
+    token_cap_input: int | None = typer.Option(None, "--token-cap-input"),
+    token_cap_output: int | None = typer.Option(None, "--token-cap-output"),
+    ) -> None:
+    context = _stage_context(
+        run_dir=run_dir,
+        on_exists=on_exists,
+        dry_run=dry_run,
+        force=force,
+        verbose=verbose,
+        llm_provider=llm_provider,
+        cost_cap_usd=cost_cap_usd,
+        token_cap_input=token_cap_input,
+        token_cap_output=token_cap_output,
+    )
+    try:
+        result = s09_translate_faithful.run_stage(context=context, ask_user=_ask_user)
+        _print_result(result, include_status=False)
+    except Exception as exc:
+        _handle_failure(exc)
+
+
+@app.command("s10-translate-edit", help="s10: Editorial polish of Czech translation.")
+def run_s10_translate_edit(
     run_dir: Path = typer.Argument(...),
     on_exists: OnExistsMode = typer.Option(OnExistsMode.ASK, "--on-exists"),
     dry_run: bool = typer.Option(False, "--dry-run"),
@@ -698,7 +731,77 @@ def run_s09_translate_edit(
         token_cap_output=token_cap_output,
     )
     try:
-        result = s09_translate_edit.run_stage(context=context, ask_user=_ask_user)
+        result = s10_translate_edit.run_stage(context=context, ask_user=_ask_user)
+        _print_result(result, include_status=False)
+    except Exception as exc:
+        _handle_failure(exc)
+
+
+@app.command("s08-translate", help="DEPRECATED alias for s09-translate.")
+def run_s08_translate_alias(
+    run_dir: Path = typer.Argument(...),
+    on_exists: OnExistsMode = typer.Option(OnExistsMode.ASK, "--on-exists"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+    force: bool = typer.Option(False, "--force"),
+    verbose: bool = typer.Option(False, "--verbose"),
+    llm_provider: LlmProvider | None = typer.Option(None, "--llm-provider"),
+    cost_cap_usd: float | None = typer.Option(None, "--cost-cap-usd"),
+    token_cap_input: int | None = typer.Option(None, "--token-cap-input"),
+    token_cap_output: int | None = typer.Option(None, "--token-cap-output"),
+) -> None:
+    typer.secho(
+        "[deprecated] 's08-translate' was moved to 's09-translate'.",
+        fg=typer.colors.YELLOW,
+        err=True,
+    )
+    context = _stage_context(
+        run_dir=run_dir,
+        on_exists=on_exists,
+        dry_run=dry_run,
+        force=force,
+        verbose=verbose,
+        llm_provider=llm_provider,
+        cost_cap_usd=cost_cap_usd,
+        token_cap_input=token_cap_input,
+        token_cap_output=token_cap_output,
+    )
+    try:
+        result = s09_translate_faithful.run_stage(context=context, ask_user=_ask_user)
+        _print_result(result, include_status=False)
+    except Exception as exc:
+        _handle_failure(exc)
+
+
+@app.command("s09-translate-edit", help="DEPRECATED alias for s10-translate-edit.")
+def run_s09_translate_edit_alias(
+    run_dir: Path = typer.Argument(...),
+    on_exists: OnExistsMode = typer.Option(OnExistsMode.ASK, "--on-exists"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+    force: bool = typer.Option(False, "--force"),
+    verbose: bool = typer.Option(False, "--verbose"),
+    llm_provider: LlmProvider | None = typer.Option(None, "--llm-provider"),
+    cost_cap_usd: float | None = typer.Option(None, "--cost-cap-usd"),
+    token_cap_input: int | None = typer.Option(None, "--token-cap-input"),
+    token_cap_output: int | None = typer.Option(None, "--token-cap-output"),
+) -> None:
+    typer.secho(
+        "[deprecated] 's09-translate-edit' was moved to 's10-translate-edit'.",
+        fg=typer.colors.YELLOW,
+        err=True,
+    )
+    context = _stage_context(
+        run_dir=run_dir,
+        on_exists=on_exists,
+        dry_run=dry_run,
+        force=force,
+        verbose=verbose,
+        llm_provider=llm_provider,
+        cost_cap_usd=cost_cap_usd,
+        token_cap_input=token_cap_input,
+        token_cap_output=token_cap_output,
+    )
+    try:
+        result = s10_translate_edit.run_stage(context=context, ask_user=_ask_user)
         _print_result(result, include_status=False)
     except Exception as exc:
         _handle_failure(exc)

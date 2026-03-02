@@ -17,14 +17,21 @@ STAGE_OUTPUT_MULTIPLIER: dict[StageId, float] = {
     StageId.S05: 0.95,
     StageId.S06: 0.35,
     StageId.S07: 0.80,
-    StageId.S08: 1.05,
-    StageId.S09: 0.90,
+    StageId.S08: 0.70,
+    StageId.S09: 1.05,
+    StageId.S10: 0.90,
 }
 
 
-def resolve_llm_model(settings: Settings, *, stage_id: StageId, local_model_attr: str) -> str:
+def resolve_llm_model(
+    settings: Settings,
+    *,
+    stage_id: StageId,
+    local_model_attr: str,
+    openai_model_attr: str | None = None,
+) -> str:
     if settings.llm_provider is LlmProvider.OPENAI:
-        openai_attr = f"openai_model_{stage_id.value}"
+        openai_attr = openai_model_attr if openai_model_attr is not None else f"openai_model_{stage_id.value}"
         value = getattr(settings, openai_attr)
     else:
         value = getattr(settings, local_model_attr)

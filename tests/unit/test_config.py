@@ -67,3 +67,26 @@ def test_render_default_pipeline_toml_contains_all_fields(tmp_path: Path) -> Non
     (tmp_path / "pipeline.toml").write_text(rendered, encoding="utf-8")
     settings = load_settings(tmp_path)
     assert settings == Settings()
+
+
+def test_load_settings_maps_legacy_stage_keys_to_v2_numbering(tmp_path: Path) -> None:
+    (tmp_path / "pipeline.toml").write_text(
+        """
+[sruti]
+s08_model = "legacy-translate"
+s08_temperature = 0.11
+s09_model = "legacy-czech-edit"
+s09_temperature = 0.22
+openai_model_s08 = "gpt-legacy-translate"
+openai_model_s09 = "gpt-legacy-edit"
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    settings = load_settings(tmp_path)
+    assert settings.s09_model == "legacy-translate"
+    assert settings.s09_temperature == 0.11
+    assert settings.s10_model == "legacy-czech-edit"
+    assert settings.s10_temperature == 0.22
+    assert settings.openai_model_s09 == "gpt-legacy-translate"
+    assert settings.openai_model_s10 == "gpt-legacy-edit"

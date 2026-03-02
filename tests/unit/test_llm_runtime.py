@@ -20,6 +20,21 @@ def test_resolve_llm_model_uses_openai_stage_mapping() -> None:
     assert model == "gpt-5-mini"
 
 
+def test_resolve_llm_model_supports_explicit_openai_attr_override() -> None:
+    settings = Settings(
+        llm_provider=LlmProvider.OPENAI,
+        openai_model_s09="gpt-5-mini",
+        openai_model_s08="gpt-5-nano",
+    )
+    model = resolve_llm_model(
+        settings,
+        stage_id=StageId.S09,
+        local_model_attr="s09_model",
+        openai_model_attr="openai_model_s08",
+    )
+    assert model == "gpt-5-nano"
+
+
 def test_cost_guardrails_preflight_enforces_cost_cap() -> None:
     settings = Settings(
         llm_provider=LlmProvider.OPENAI,

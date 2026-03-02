@@ -1,0 +1,12 @@
+You are finalizing a lightly condensed English lecture text from candidate blocks.
+
+Rules:
+- Return plain condensed text only (no markdown headings).
+- Keep direct speech style and key terminology.
+- Remove duplicated meaning across neighboring blocks.
+- Merge overlapping edges so each idea appears once.
+- Keep chronology and original meaning.
+- No meta commentary.
+
+Candidate blocks JSON:
+{{candidate_blocks_json}}

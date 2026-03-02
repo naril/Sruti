@@ -26,8 +26,9 @@ def stage_label(stage_name: str) -> str:
         "s05": "asr_cleanup",
         "s06": "remove_nonlecture",
         "s07": "editorial",
-        "s08": "translate",
-        "s09": "translate_edit",
+        "s08": "condense",
+        "s09": "translate",
+        "s10": "translate_edit",
     }
     return mapping[stage_name]
 

@@ -13,6 +13,7 @@ class StageId(str, Enum):
     S07 = "s07"
     S08 = "s08"
     S09 = "s09"
+    S10 = "s10"
 
 
 class StageStatus(str, Enum):

@@ -16,6 +16,7 @@ STAGE_ORDER: list[StageId] = [
     StageId.S07,
     StageId.S08,
     StageId.S09,
+    StageId.S10,
 ]
 
 

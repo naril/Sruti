@@ -43,6 +43,12 @@ class LlmTextTransformUseCase:
         self._manifest_store = manifest_store
         self._ask_user = ask_user
 
+    def resolve_input(self, context: StageContext) -> tuple[Path, dict[str, object]]:
+        input_path = (
+            manifest_util.stage_dir_for(context.run_dir, self.input_stage_id.value) / self.input_filename
+        )
+        return input_path, {}
+
     def run(self, context: StageContext) -> StageResult:
         if context.settings.llm_provider is LlmProvider.LOCAL:
             require_executable(context.settings.ollama_bin)
@@ -54,9 +60,7 @@ class LlmTextTransformUseCase:
         temperature = getattr(context.settings, self.temperature_setting_attr)
 
         stage_dir = manifest_util.stage_dir_for(context.run_dir, self.stage_id.value)
-        input_path = (
-            manifest_util.stage_dir_for(context.run_dir, self.input_stage_id.value) / self.input_filename
-        )
+        input_path, input_params = self.resolve_input(context)
         require_file(input_path, label=f"Input for {self.stage_id.value}")
 
         output_path = stage_dir / self.output_filename
@@ -74,6 +78,7 @@ class LlmTextTransformUseCase:
             ),
             "_inputs_signature": inputs_signature,
         }
+        params.update(input_params)
 
         runtime = StageRuntime(
             context=context,

@@ -3,10 +3,8 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from sruti.application.context import StageContext
-from sruti.application.stages.s09_translate_edit_uc import S09TranslateEditUseCase
 from sruti.domain.models import StageResult
-from sruti.infrastructure.fs_repository import FileSystemManifestStore
-from sruti.infrastructure.llm_factory import create_llm_client
+from sruti.stages.s10_translate_edit import run_stage as _run_stage_v2
 
 
 def run_stage(
@@ -14,9 +12,6 @@ def run_stage(
     context: StageContext,
     ask_user: Callable[[str], bool] | None = None,
 ) -> StageResult:
-    use_case = S09TranslateEditUseCase(
-        llm_client=create_llm_client(context.settings),
-        manifest_store=FileSystemManifestStore(),
-        ask_user=ask_user,
-    )
-    return use_case.run(context)
+    """Backward-compatible alias for pre-v2 imports."""
+
+    return _run_stage_v2(context=context, ask_user=ask_user)

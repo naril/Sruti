@@ -10,8 +10,9 @@ from sruti.application.stages.s04_merge_uc import S04MergeUseCase
 from sruti.application.stages.s05_asr_cleanup_uc import S05AsrCleanupUseCase
 from sruti.application.stages.s06_remove_nonlecture_uc import S06RemoveNonLectureUseCase
 from sruti.application.stages.s07_editorial_uc import S07EditorialUseCase
-from sruti.application.stages.s08_translate_faithful_uc import S08TranslateFaithfulUseCase
-from sruti.application.stages.s09_translate_edit_uc import S09TranslateEditUseCase
+from sruti.application.stages.s08_condense_uc import S08CondenseUseCase
+from sruti.application.stages.s09_translate_faithful_uc import S09TranslateFaithfulUseCase
+from sruti.application.stages.s10_translate_edit_uc import S10TranslateEditUseCase
 from sruti.domain.enums import OnExistsMode, StageStatus
 from sruti.domain.models import LlmGenerateResult
 from sruti.infrastructure.fs_repository import FileSystemManifestStore
@@ -65,6 +66,12 @@ class FakeOllama:
             return LlmGenerateResult(text="Hlavni text prednasky.")
         if "Improve Czech readability and style" in prompt:
             return LlmGenerateResult(text="Hlavni text prednasky.")
+        if "Create candidate condensed blocks" in prompt:
+            return LlmGenerateResult(
+                text='{"blocks":[{"from_paragraph":1,"to_paragraph":1,"title":"Core","body":"Core lecture text."}]}'
+            )
+        if "You are finalizing a lightly condensed English lecture text" in prompt:
+            return LlmGenerateResult(text="## Block 01: Core\nCore lecture text.")
         if "Edit the following English lecture text" in prompt:
             return LlmGenerateResult(text="Core lecture text.")
         return LlmGenerateResult(text="Core lecture text.")
@@ -107,13 +114,14 @@ def test_full_pipeline_simulated(monkeypatch, tmp_path: Path) -> None:
     s05 = S05AsrCleanupUseCase(llm_client=fake_ollama, manifest_store=store)
     s06 = S06RemoveNonLectureUseCase(llm_client=fake_ollama, manifest_store=store)
     s07 = S07EditorialUseCase(llm_client=fake_ollama, manifest_store=store)
-    s08 = S08TranslateFaithfulUseCase(llm_client=fake_ollama, manifest_store=store)
-    s09 = S09TranslateEditUseCase(llm_client=fake_ollama, manifest_store=store)
+    s08 = S08CondenseUseCase(llm_client=fake_ollama, manifest_store=store)
+    s09 = S09TranslateFaithfulUseCase(llm_client=fake_ollama, manifest_store=store)
+    s10 = S10TranslateEditUseCase(llm_client=fake_ollama, manifest_store=store)
 
-    for use_case in [s01, s02, s03, s04, s05, s06, s07, s08, s09]:
+    for use_case in [s01, s02, s03, s04, s05, s06, s07, s08, s09, s10]:
         result = use_case.run(ctx)
         assert result.status == StageStatus.SUCCESS
 
-    final_path = run_dir / "s09_translate_edit" / "final_publishable_cs.txt"
+    final_path = run_dir / "s10_translate_edit" / "final_publishable_cs.txt"
     assert final_path.exists()
     assert "Hlavni text prednasky." in final_path.read_text(encoding="utf-8")

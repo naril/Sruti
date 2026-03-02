@@ -70,3 +70,27 @@ def test_s06_classification_prompt_covers_individual_corrections() -> None:
     assert "situational coaching directed to a specific participant" in rendered
     assert "If a span mixes individual correction and a generally transferable explanation, choose KEEP." in rendered
     assert "individual_correction" in rendered
+
+
+def test_s09_translate_prompt_falls_back_to_legacy_name_in_custom_dir(tmp_path: Path) -> None:
+    custom_dir = tmp_path / "templates"
+    custom_dir.mkdir(parents=True, exist_ok=True)
+    (custom_dir / "s08_translate.txt").write_text("LEGACY TRANSLATE\n{{text}}", encoding="utf-8")
+
+    rendered = prompts.s09_translate_prompt("abc", template_dir=custom_dir)
+    assert rendered == "LEGACY TRANSLATE\nabc"
+
+
+def test_s09_translate_prompt_uses_builtin_template() -> None:
+    rendered = prompts.s09_translate_prompt("abc")
+    assert "Translate English to Czech faithfully." in rendered
+    assert rendered.endswith("Input:\nabc\n")
+
+
+def test_s10_czech_editorial_prompt_falls_back_to_legacy_name_in_custom_dir(tmp_path: Path) -> None:
+    custom_dir = tmp_path / "templates"
+    custom_dir.mkdir(parents=True, exist_ok=True)
+    (custom_dir / "s09_czech_editorial.txt").write_text("LEGACY CS EDIT\n{{text}}", encoding="utf-8")
+
+    rendered = prompts.s10_czech_editorial_prompt("abc", template_dir=custom_dir)
+    assert rendered == "LEGACY CS EDIT\nabc"

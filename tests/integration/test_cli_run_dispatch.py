@@ -191,6 +191,46 @@ def test_cli_single_stage_applies_llm_provider_and_caps(monkeypatch, tmp_path: P
     assert observed["token_cap_output"] == 300
 
 
+def test_cli_deprecated_alias_s08_translate_routes_to_s09_and_warns(monkeypatch, tmp_path: Path) -> None:
+    observed: list[str] = []
+
+    def fake_s09_run_stage(**kwargs):
+        context = kwargs["context"]
+        observed.append(context.run_dir.name)
+        stage_dir = context.run_dir / "s09_fake"
+        stage_dir.mkdir(parents=True, exist_ok=True)
+        return StageResult(stage=StageId.S09, status=StageStatus.SUCCESS, stage_dir=stage_dir, outputs=[])
+
+    monkeypatch.setattr("sruti.cli.s09_translate_faithful.run_stage", fake_s09_run_stage)
+    run_dir = tmp_path / "run-alias-1"
+    runner = CliRunner()
+    result = runner.invoke(app, ["s08-translate", str(run_dir), "--on-exists", "overwrite"])
+    assert result.exit_code == 0, result.stdout
+    assert observed == ["run-alias-1"]
+    assert "[deprecated] 's08-translate' was moved to 's09-translate'." in result.stderr
+
+
+def test_cli_deprecated_alias_s09_translate_edit_routes_to_s10_and_warns(
+    monkeypatch, tmp_path: Path
+) -> None:
+    observed: list[str] = []
+
+    def fake_s10_run_stage(**kwargs):
+        context = kwargs["context"]
+        observed.append(context.run_dir.name)
+        stage_dir = context.run_dir / "s10_fake"
+        stage_dir.mkdir(parents=True, exist_ok=True)
+        return StageResult(stage=StageId.S10, status=StageStatus.SUCCESS, stage_dir=stage_dir, outputs=[])
+
+    monkeypatch.setattr("sruti.cli.s10_translate_edit.run_stage", fake_s10_run_stage)
+    run_dir = tmp_path / "run-alias-2"
+    runner = CliRunner()
+    result = runner.invoke(app, ["s09-translate-edit", str(run_dir), "--on-exists", "overwrite"])
+    assert result.exit_code == 0, result.stdout
+    assert observed == ["run-alias-2"]
+    assert "[deprecated] 's09-translate-edit' was moved to 's10-translate-edit'." in result.stderr
+
+
 def test_cli_run_batch_processes_recursive_audio_files_into_unique_run_dirs(
     monkeypatch, tmp_path: Path
 ) -> None:
@@ -433,8 +473,8 @@ def test_cli_help_lists_commands_with_short_descriptions() -> None:
     assert result.exit_code == 0, result.stdout
     expected: dict[str, str] = {
         "init": "Create RUN_DIR and prefill pipeline.toml",
-        "run": "Run a stage range (s01-s09) in order.",
-        "run-batch": "Run a stage range (s01-s09) over all audio files",
+        "run": "Run a stage range (s01-s10) in order.",
+        "run-batch": "Run a stage range (s01-s10) over all audio files",
         "s01-normalize": "s01: Normalize input audio",
         "s02-chunk": "s02: Split normalized audio",
         "s03-asr": "s03: Transcribe audio chunks",
@@ -442,8 +482,11 @@ def test_cli_help_lists_commands_with_short_descriptions() -> None:
         "s05-asr-cleanup": "s05: LLM cleanup of ASR transcript errors.",
         "s06-remove-nonlecture": "s06: Remove non-lecture content",
         "s07-editorial": "s07: Editorially refine English text",
-        "s08-translate": "s08: Faithful English-to-Czech translation.",
-        "s09-translate-edit": "s09: Editorial polish of Czech translation.",
+        "s08-condense": "s08: Lightly condense English text",
+        "s09-translate": "s09: Faithful English-to-Czech translation.",
+        "s10-translate-edit": "s10: Editorial polish of Czech translation.",
+        "s08-translate": "DEPRECATED alias for s09-translate.",
+        "s09-translate-edit": "DEPRECATED alias for s10-translate-edit.",
     }
     for command, description in expected.items():
         assert command in result.stdout

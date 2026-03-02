@@ -6,8 +6,9 @@ from sruti.stages import (
     s05_asr_cleanup,
     s06_remove_nonlecture,
     s07_editorial,
-    s08_translate_faithful,
-    s09_translate_edit,
+    s08_condense,
+    s09_translate_faithful,
+    s10_translate_edit,
 )
 
 __all__ = [
@@ -18,6 +19,7 @@ __all__ = [
     "s05_asr_cleanup",
     "s06_remove_nonlecture",
     "s07_editorial",
-    "s08_translate_faithful",
-    "s09_translate_edit",
+    "s08_condense",
+    "s09_translate_faithful",
+    "s10_translate_edit",
 ]
