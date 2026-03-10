@@ -45,7 +45,7 @@ def test_s10_translate_edit_happy_path(monkeypatch, tmp_path: Path) -> None:
     s09_dir.mkdir(parents=True, exist_ok=True)
     (s09_dir / "translated_faithful_cs.txt").write_text("preklad", encoding="utf-8")
     use_case = S10TranslateEditUseCase(
-        llm_client=FakeOllama(),
+        llm_client_factory=lambda: FakeOllama(),
         manifest_store=FileSystemManifestStore(),
     )
     result = use_case.run(_ctx(tmp_path))

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+from sruti.application.batch_scheduler import ExecutionCoordinator
 from sruti.config import Settings, load_settings
 from sruti.domain.enums import LlmProvider, OnExistsMode
 
@@ -23,6 +24,7 @@ class StageContext:
     verbose: bool
     is_tty: bool
     progress_emitter: Callable[[str], None] = _noop_progress
+    execution_coordinator: ExecutionCoordinator | None = None
 
     @classmethod
     def build(
@@ -39,6 +41,7 @@ class StageContext:
         token_cap_input_override: int | None = None,
         token_cap_output_override: int | None = None,
         progress_emitter: Callable[[str], None] | None = None,
+        execution_coordinator: ExecutionCoordinator | None = None,
     ) -> "StageContext":
         effective_settings_dir = settings_dir if settings_dir is not None else run_dir
         settings = load_settings(run_dir=effective_settings_dir)
@@ -65,6 +68,7 @@ class StageContext:
             verbose=verbose,
             is_tty=sys.stdin.isatty(),
             progress_emitter=progress_emitter if progress_emitter is not None else _noop_progress,
+            execution_coordinator=execution_coordinator,
         )
 
     def emit_progress(self, message: str, *, verbose_only: bool = False) -> None:

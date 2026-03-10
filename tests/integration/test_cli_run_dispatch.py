@@ -272,11 +272,13 @@ def test_cli_run_batch_processes_recursive_audio_files_into_unique_run_dirs(
         ],
     )
     assert result.exit_code == 0, result.stdout
-    assert calls == [("lecture.wav", "lecture"), ("nested/lecture.MP3", "lecture-2")]
+    assert sorted(calls) == [("lecture.wav", "lecture"), ("nested/lecture.MP3", "lecture-2")]
     manifest_data = json.loads((runs_root / "batch_manifest.json").read_text(encoding="utf-8"))
     mapping = manifest_data["audio_to_run_dir"]
     assert mapping[str((input_dir / "lecture.wav").resolve())] == "lecture"
     assert mapping[str((input_dir / "nested" / "lecture.MP3").resolve())] == "lecture-2"
+    assert (runs_root / "batch_scheduler_state.json").exists()
+    assert (runs_root / "batch_scheduler_events.jsonl").exists()
 
 
 def test_cli_run_batch_uses_shared_pipeline_settings_for_each_run(
@@ -370,9 +372,38 @@ def test_cli_run_batch_continues_after_failure_and_returns_nonzero(
         ],
     )
     assert result.exit_code == 1
-    assert calls == ["bad", "good"]
+    assert sorted(calls) == ["bad", "good"]
     assert "[run-batch] summary: 1 succeeded, 1 failed (total 2)." in result.stdout
     assert (runs_root / "good" / "s01_fake").is_dir()
+
+
+def test_cli_run_batch_rejects_interactive_on_exists_when_parallelism_is_enabled(tmp_path: Path) -> None:
+    runs_root = tmp_path / "runs"
+    runs_root.mkdir(parents=True, exist_ok=True)
+    (runs_root / "pipeline.toml").write_text("[sruti]\nchunk_seconds = 30\n", encoding="utf-8")
+
+    input_dir = tmp_path / "inputs"
+    input_dir.mkdir(parents=True, exist_ok=True)
+    (input_dir / "lecture.wav").write_bytes(b"a")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "run-batch",
+            str(runs_root),
+            "--in-dir",
+            str(input_dir),
+            "--from",
+            "s01",
+            "--to",
+            "s01",
+            "--on-exists",
+            "ask",
+        ],
+    )
+    assert result.exit_code == 2
+    assert "--max-active-runs 1" in result.stderr
 
 
 def test_cli_run_batch_preserves_existing_mapping_and_adds_new_files(

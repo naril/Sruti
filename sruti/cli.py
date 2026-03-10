@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 import re
+from contextlib import nullcontext
 from pathlib import Path
 
 import typer
 
+from sruti.application.batch_scheduler import BatchScheduler, BatchSchedulerConfig, RunWorkItem
 from sruti.application.context import StageContext
-from sruti.config import render_default_pipeline_toml
+from sruti.config import load_settings, render_default_pipeline_toml
 from sruti.domain.enums import LlmProvider, OnExistsMode, StageId
 from sruti.domain.errors import SrutiError
 from sruti.domain.models import StageResult
@@ -74,6 +76,7 @@ def _stage_context(
     cost_cap_usd: float | None,
     token_cap_input: int | None,
     token_cap_output: int | None,
+    execution_coordinator=None,
 ) -> StageContext:
     return StageContext.build(
         run_dir=run_dir,
@@ -87,6 +90,47 @@ def _stage_context(
         token_cap_input_override=token_cap_input,
         token_cap_output_override=token_cap_output,
         progress_emitter=_emit_progress,
+        execution_coordinator=execution_coordinator,
+    )
+
+
+def _build_batch_scheduler_config(
+    *,
+    runs_root: Path,
+    max_active_runs: int | None,
+    local_slots: int | None,
+    external_api_slots: int | None,
+    external_api_slots_per_run: int | None,
+) -> BatchSchedulerConfig:
+    settings = load_settings(runs_root)
+    resolved_max_active_runs = (
+        settings.batch_max_active_runs if max_active_runs is None else max_active_runs
+    )
+    resolved_local_slots = settings.batch_local_slots if local_slots is None else local_slots
+    resolved_external_api_slots = (
+        settings.batch_external_api_slots if external_api_slots is None else external_api_slots
+    )
+    resolved_external_api_slots_per_run = (
+        settings.batch_external_api_slots_per_run
+        if external_api_slots_per_run is None
+        else external_api_slots_per_run
+    )
+
+    if resolved_max_active_runs < 0:
+        raise typer.BadParameter("batch max active runs must be >= 0.")
+    if resolved_local_slots < 1:
+        raise typer.BadParameter("batch local slots must be >= 1.")
+    if resolved_external_api_slots < 1:
+        raise typer.BadParameter("batch external API slots must be >= 1.")
+    if resolved_external_api_slots_per_run < 1:
+        raise typer.BadParameter("batch external API slots per run must be >= 1.")
+
+    return BatchSchedulerConfig(
+        runs_root=runs_root,
+        max_active_runs=resolved_max_active_runs,
+        local_slots=resolved_local_slots,
+        external_api_slots=resolved_external_api_slots,
+        external_api_slots_per_run=resolved_external_api_slots_per_run,
     )
 
 
@@ -119,13 +163,22 @@ def _run_stage_range(
         f"[{command_label}] starting: {source_stage.value}->{target_stage.value} in {context.run_dir}"
     )
     for stage_id in stage_ids_in_range(source_stage, target_stage):
-        result = _run_single_stage(
-            stage_id=stage_id,
-            context=context,
-            in_path=in_path,
-            seconds=seconds,
-            model_path=model_path,
+        stage_scope = (
+            context.execution_coordinator.stage_scope(
+                stage_id,
+                llm_provider=context.settings.llm_provider,
+            )
+            if context.execution_coordinator is not None
+            else nullcontext()
         )
+        with stage_scope:
+            result = _run_single_stage(
+                stage_id=stage_id,
+                context=context,
+                in_path=in_path,
+                seconds=seconds,
+                model_path=model_path,
+            )
         _print_result(result, include_status=False)
 
 
@@ -347,6 +400,26 @@ def run_batch(
     cost_cap_usd: float | None = typer.Option(None, "--cost-cap-usd"),
     token_cap_input: int | None = typer.Option(None, "--token-cap-input"),
     token_cap_output: int | None = typer.Option(None, "--token-cap-output"),
+    max_active_runs: int | None = typer.Option(
+        None,
+        "--max-active-runs",
+        help="Max concurrent per-file runs. 0 in config means auto (= local_slots + external_api_slots).",
+    ),
+    local_slots: int | None = typer.Option(
+        None,
+        "--local-slots",
+        help="Max concurrent local-heavy stages (ffmpeg, whisper, local Ollama).",
+    ),
+    external_api_slots: int | None = typer.Option(
+        None,
+        "--external-api-slots",
+        help="Global cap for concurrent external API calls across all runs.",
+    ),
+    external_api_slots_per_run: int | None = typer.Option(
+        None,
+        "--external-api-slots-per-run",
+        help="Per-run cap for concurrent external API calls.",
+    ),
 ) -> None:
     if not runs_root.is_dir():
         raise typer.BadParameter(f"{runs_root} is not a directory.")
@@ -361,6 +434,22 @@ def run_batch(
         if not audio_files:
             raise ValueError(f"No supported audio files found under {in_dir}.")
 
+        scheduler_config = _build_batch_scheduler_config(
+            runs_root=runs_root,
+            max_active_runs=max_active_runs,
+            local_slots=local_slots,
+            external_api_slots=external_api_slots,
+            external_api_slots_per_run=external_api_slots_per_run,
+        )
+        if (
+            on_exists is OnExistsMode.ASK
+            and scheduler_config.effective_max_active_runs() > 1
+        ):
+            raise typer.BadParameter(
+                "--on-exists ask is only supported with sequential batch execution. "
+                "Use skip|overwrite|fail or set --max-active-runs 1."
+            )
+
         mapping = _load_batch_mapping(runs_root)
         assignments, mapping_changed = _assign_batch_run_dirs(
             runs_root=runs_root,
@@ -370,13 +459,21 @@ def run_batch(
         if mapping_changed:
             _save_batch_mapping(runs_root, mapping)
 
-        failures: list[tuple[Path, str]] = []
         total = len(audio_files)
-        for index, audio_path in enumerate(audio_files, start=1):
-            run_dir = assignments[audio_path]
-            typer.secho(f"[run-batch] file {index}/{total}: {audio_path}", fg=typer.colors.BLUE)
+        scheduler = BatchScheduler(config=scheduler_config, progress_emitter=_emit_progress)
+        work_items = [
+            RunWorkItem(
+                audio_path=audio_path,
+                run_dir=assignments[audio_path],
+                run_index=index,
+                total_runs=total,
+            )
+            for index, audio_path in enumerate(audio_files, start=1)
+        ]
+
+        def _worker(work_item: RunWorkItem, coordinator) -> None:
             context = _stage_context(
-                run_dir=run_dir,
+                run_dir=work_item.run_dir,
                 settings_dir=runs_root,
                 on_exists=on_exists,
                 dry_run=dry_run,
@@ -386,25 +483,20 @@ def run_batch(
                 cost_cap_usd=cost_cap_usd,
                 token_cap_input=token_cap_input,
                 token_cap_output=token_cap_output,
+                execution_coordinator=coordinator,
             )
-            try:
-                _run_stage_range(
-                    context=context,
-                    source_stage=source_stage,
-                    target_stage=target_stage,
-                    in_path=audio_path,
-                    seconds=seconds,
-                    model_path=model_path,
-                    command_label="run-batch",
-                )
-            except Exception as exc:
-                message = _batch_error_message(exc)
-                failures.append((audio_path, message))
-                typer.secho(
-                    f"[run-batch] failed for {audio_path}: {message}",
-                    fg=typer.colors.RED,
-                    err=True,
-                )
+            _run_stage_range(
+                context=context,
+                source_stage=source_stage,
+                target_stage=target_stage,
+                in_path=work_item.audio_path,
+                seconds=seconds,
+                model_path=model_path,
+                command_label="run-batch",
+            )
+
+        failure_rows = scheduler.run(work_items, worker=_worker)
+        failures = [(work_item.audio_path, message) for work_item, message in failure_rows]
 
         succeeded = total - len(failures)
         color = typer.colors.GREEN if not failures else typer.colors.RED

@@ -15,7 +15,7 @@ def run_stage(
     ask_user: Callable[[str], bool] | None = None,
 ) -> StageResult:
     use_case = S07EditorialUseCase(
-        llm_client=create_llm_client(context.settings),
+        llm_client_factory=lambda: create_llm_client(context.settings),
         manifest_store=FileSystemManifestStore(),
         ask_user=ask_user,
     )

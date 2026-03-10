@@ -63,7 +63,7 @@ def test_s09_translate_prefers_current_s08_output(monkeypatch, tmp_path: Path) -
     )
     ollama = FakeOllama()
     use_case = S09TranslateFaithfulUseCase(
-        llm_client=ollama,
+        llm_client_factory=lambda: ollama,
         manifest_store=FileSystemManifestStore(),
     )
     result = use_case.run(_ctx(tmp_path))
@@ -81,7 +81,7 @@ def test_s09_translate_falls_back_to_s07_when_s08_missing(monkeypatch, tmp_path:
     (s07_dir / "final_publishable_en.txt").write_text("final en", encoding="utf-8")
     ollama = FakeOllama()
     use_case = S09TranslateFaithfulUseCase(
-        llm_client=ollama,
+        llm_client_factory=lambda: ollama,
         manifest_store=FileSystemManifestStore(),
     )
     result = use_case.run(_ctx(tmp_path))
@@ -109,7 +109,7 @@ def test_s09_translate_falls_back_to_s07_when_s08_is_stale(monkeypatch, tmp_path
     )
     ollama = FakeOllama()
     use_case = S09TranslateFaithfulUseCase(
-        llm_client=ollama,
+        llm_client_factory=lambda: ollama,
         manifest_store=FileSystemManifestStore(),
     )
     result = use_case.run(_ctx(tmp_path))

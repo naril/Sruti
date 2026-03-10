@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import time
+from concurrent.futures import Future, ThreadPoolExecutor
+from contextlib import nullcontext
 from pathlib import Path
 
 from sruti.application.context import StageContext
 from sruti.application.stages.s08_condense_uc import S08CondenseUseCase
-from sruti.domain.enums import OnExistsMode, StageStatus
+from sruti.domain.enums import LlmProvider, OnExistsMode, StageId, StageStatus
 from sruti.domain.models import LlmGenerateResult
 from sruti.infrastructure.fs_repository import FileSystemManifestStore
 from sruti.util import manifest as manifest_util
@@ -49,6 +52,57 @@ class FakeOllama:
         return LlmGenerateResult(text="## Block 01: Intro\nA.\n\n## Block 02: Middle\nB.\n\nC.")
 
 
+class ThreadedCoordinator:
+    def __init__(self, *, max_parallel: int) -> None:
+        self._max_parallel = max_parallel
+        self._executor = ThreadPoolExecutor(max_workers=max_parallel)
+
+    def emit_progress(self, message: str) -> None:
+        _ = message
+
+    def stage_scope(self, stage_id: StageId, *, llm_provider: LlmProvider):
+        _ = (stage_id, llm_provider)
+        return nullcontext()
+
+    def submit_external_api_task(self, *, stage_id: StageId, task_label: str, fn) -> Future[LlmGenerateResult]:
+        _ = (stage_id, task_label)
+        return self._executor.submit(fn)
+
+    def max_external_api_parallelism(self) -> int:
+        return self._max_parallel
+
+    def shutdown(self) -> None:
+        self._executor.shutdown(wait=True)
+
+
+class FakeOpenAIParallelCondense:
+    def ensure_model_available(self, model: str) -> None:
+        _ = model
+
+    def provider_name(self) -> str:
+        return "openai"
+
+    def generate(
+        self,
+        *,
+        model: str,
+        prompt: str,
+        temperature: float,
+        timeout_seconds: int | None = None,
+    ) -> LlmGenerateResult:
+        _ = (model, temperature, timeout_seconds)
+        if "Candidate blocks JSON:" in prompt:
+            return LlmGenerateResult(text="FIRST.\n\nSECOND.")
+        if "[1]" in prompt:
+            time.sleep(0.05)
+            return LlmGenerateResult(
+                text='{"blocks":[{"from_paragraph":1,"to_paragraph":8,"title":"Intro","body":"FIRST."}]}'
+            )
+        return LlmGenerateResult(
+            text='{"blocks":[{"from_paragraph":8,"to_paragraph":9,"title":"Tail","body":"SECOND."}]}'
+        )
+
+
 def _ctx(run_dir: Path, *, dry_run: bool = False) -> StageContext:
     return StageContext.build(
         run_dir=run_dir,
@@ -56,6 +110,18 @@ def _ctx(run_dir: Path, *, dry_run: bool = False) -> StageContext:
         dry_run=dry_run,
         force=False,
         verbose=False,
+    )
+
+
+def _openai_ctx(run_dir: Path, coordinator: ThreadedCoordinator) -> StageContext:
+    return StageContext.build(
+        run_dir=run_dir,
+        on_exists=OnExistsMode.OVERWRITE,
+        dry_run=False,
+        force=False,
+        verbose=False,
+        llm_provider_override=LlmProvider.OPENAI,
+        execution_coordinator=coordinator,
     )
 
 
@@ -69,7 +135,7 @@ def test_s08_condense_happy_path_merges_overlap_and_strips_block_headings(
     paragraphs = [f"Paragraph {idx}." for idx in range(1, 10)]
     (s07_dir / "final_publishable_en.txt").write_text("\n\n".join(paragraphs), encoding="utf-8")
     use_case = S08CondenseUseCase(
-        llm_client=FakeOllama(),
+        llm_client_factory=lambda: FakeOllama(),
         manifest_store=FileSystemManifestStore(),
     )
     result = use_case.run(_ctx(tmp_path))
@@ -97,7 +163,7 @@ def test_s08_condense_empty_input_produces_empty_output(monkeypatch, tmp_path: P
     (s07_dir / "final_publishable_en.txt").write_text(" \n\n\t", encoding="utf-8")
     ollama = FakeOllama()
     use_case = S08CondenseUseCase(
-        llm_client=ollama,
+        llm_client_factory=lambda: ollama,
         manifest_store=FileSystemManifestStore(),
     )
     result = use_case.run(_ctx(tmp_path))
@@ -132,7 +198,7 @@ prompt_templates_dir = "prompts"
 
     ollama = FakeOllama()
     use_case = S08CondenseUseCase(
-        llm_client=ollama,
+        llm_client_factory=lambda: ollama,
         manifest_store=FileSystemManifestStore(),
     )
     result = use_case.run(_ctx(tmp_path))
@@ -173,7 +239,7 @@ def test_s08_condense_accepts_fenced_json_from_map_step(monkeypatch, tmp_path: P
     (s07_dir / "final_publishable_en.txt").write_text("Paragraph one.", encoding="utf-8")
 
     use_case = S08CondenseUseCase(
-        llm_client=FencedMapOllama(),
+        llm_client_factory=lambda: FencedMapOllama(),
         manifest_store=FileSystemManifestStore(),
     )
     result = use_case.run(_ctx(tmp_path))
@@ -182,3 +248,30 @@ def test_s08_condense_accepts_fenced_json_from_map_step(monkeypatch, tmp_path: P
     assert candidate_rows == [
         {"from_paragraph": 1, "to_paragraph": 1, "title": "Intro", "body": "A."},
     ]
+
+
+def test_s08_condense_parallel_openai_keeps_map_log_order(tmp_path: Path) -> None:
+    s07_dir = manifest_util.stage_dir_for(tmp_path, "s07")
+    s07_dir.mkdir(parents=True, exist_ok=True)
+    paragraphs = [f"Paragraph {idx}." for idx in range(1, 10)]
+    (s07_dir / "final_publishable_en.txt").write_text("\n\n".join(paragraphs), encoding="utf-8")
+    coordinator = ThreadedCoordinator(max_parallel=2)
+    use_case = S08CondenseUseCase(
+        llm_client_factory=lambda: FakeOpenAIParallelCondense(),
+        manifest_store=FileSystemManifestStore(),
+    )
+    try:
+        result = use_case.run(_openai_ctx(tmp_path, coordinator))
+    finally:
+        coordinator.shutdown()
+
+    assert result.status == StageStatus.SUCCESS
+    rows = [
+        json.loads(line)
+        for line in (tmp_path / "s08_condense" / "logs" / "model_calls.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert rows[0]["phase"] == "map"
+    assert rows[0]["batch_id"] == 1
+    assert rows[1]["phase"] == "map"
+    assert rows[1]["batch_id"] == 2
+    assert rows[2]["phase"] == "reduce"

@@ -111,12 +111,12 @@ def test_full_pipeline_simulated(monkeypatch, tmp_path: Path) -> None:
     s03 = S03AsrWhisperUseCase(whisper_model_path=model_path, whisper=FakeWhisper(), manifest_store=store)
     s04 = S04MergeUseCase(manifest_store=store)
     fake_ollama = FakeOllama()
-    s05 = S05AsrCleanupUseCase(llm_client=fake_ollama, manifest_store=store)
-    s06 = S06RemoveNonLectureUseCase(llm_client=fake_ollama, manifest_store=store)
-    s07 = S07EditorialUseCase(llm_client=fake_ollama, manifest_store=store)
-    s08 = S08CondenseUseCase(llm_client=fake_ollama, manifest_store=store)
-    s09 = S09TranslateFaithfulUseCase(llm_client=fake_ollama, manifest_store=store)
-    s10 = S10TranslateEditUseCase(llm_client=fake_ollama, manifest_store=store)
+    s05 = S05AsrCleanupUseCase(llm_client_factory=lambda: fake_ollama, manifest_store=store)
+    s06 = S06RemoveNonLectureUseCase(llm_client_factory=lambda: fake_ollama, manifest_store=store)
+    s07 = S07EditorialUseCase(llm_client_factory=lambda: fake_ollama, manifest_store=store)
+    s08 = S08CondenseUseCase(llm_client_factory=lambda: fake_ollama, manifest_store=store)
+    s09 = S09TranslateFaithfulUseCase(llm_client_factory=lambda: fake_ollama, manifest_store=store)
+    s10 = S10TranslateEditUseCase(llm_client_factory=lambda: fake_ollama, manifest_store=store)
 
     for use_case in [s01, s02, s03, s04, s05, s06, s07, s08, s09, s10]:
         result = use_case.run(ctx)

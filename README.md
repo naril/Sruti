@@ -43,6 +43,10 @@ sruti run-batch RUNS_ROOT \
   --in-dir /absolute/path/audio-folder \
   --from s01 \
   --to s10 \
+  --max-active-runs 0 \
+  --local-slots 1 \
+  --external-api-slots 4 \
+  --external-api-slots-per-run 2 \
   --on-exists overwrite
 ```
 
@@ -83,8 +87,18 @@ Batch mode rules:
   collisions with suffixes (`lecture-a-2`, `lecture-a-3`, ...).
 - Stable mapping is stored in `RUNS_ROOT/batch_manifest.json` so repeated runs keep existing
   `audio -> run_dir` assignments.
+- Batch execution is centrally scheduled, with separate limits for local-heavy stages and
+  external API calls.
 - On per-file failure, batch continues with remaining files and exits with code `1` if any file
   failed (otherwise `0`).
+- `--on-exists ask` is supported only when the batch is effectively sequential
+  (`--max-active-runs 1`).
+- `--max-active-runs`: max concurrent per-file pipelines. `0` means auto
+  (`local_slots + external_api_slots`).
+- `--local-slots`: max concurrent local-heavy stages such as `ffmpeg`, `whisper-cli`, and
+  local-provider LLM stages.
+- `--external-api-slots`: global cap for concurrent external API calls.
+- `--external-api-slots-per-run`: fair-share cap for one run's concurrent external API calls.
 
 #### `sruti s01-normalize RUN_DIR --in INPUT_AUDIO [OPTIONS]`
 
@@ -180,6 +194,8 @@ In batch mode, `RUNS_ROOT/` additionally contains:
 
 - `pipeline.toml` (shared settings for all files)
 - `batch_manifest.json` (stable `audio -> run_dir` mapping)
+- `batch_scheduler_state.json` (current batch snapshot with run/resource state)
+- `batch_scheduler_events.jsonl` (append-only scheduler event log)
 - one subfolder per discovered audio input
 
 ## Configuration
@@ -205,6 +221,10 @@ openai_model_s08 = "gpt-5-mini"
 openai_model_s09 = "gpt-5-mini"
 openai_model_s10 = "gpt-5-mini"
 prompt_templates_dir = "prompts"
+batch_max_active_runs = 0
+batch_local_slots = 1
+batch_external_api_slots = 4
+batch_external_api_slots_per_run = 2
 cost_cap_usd = 2.0
 token_cap_input = 2000000
 token_cap_output = 1000000
@@ -230,6 +250,8 @@ Progress output:
 
 - Always: run start and stage start/finish with duration.
 - `--verbose`: chunk-level progress (`s03` chunk transcription, `s05/s07/s08/s09/s10` LLM chunk processing, `s06` batch/retry details).
+- Batch mode serializes worker progress into one CLI stream and mirrors the same activity to
+  `batch_scheduler_events.jsonl`.
 
 ## Prompt templates
 

@@ -52,6 +52,10 @@ class Settings(BaseModel):
     ffmpeg_bin: str = "ffmpeg"
     whisper_cli_bin: str = "whisper-cli"
     ollama_bin: str = "ollama"
+    batch_max_active_runs: int = 0
+    batch_local_slots: int = 1
+    batch_external_api_slots: int = 4
+    batch_external_api_slots_per_run: int = 2
     default_whisper_model_path: Path = Field(
         default=Path("./models/ggml-large-v3.bin"),
         description="Path to whisper.cpp large-v3 model.",

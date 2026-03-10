@@ -3,10 +3,12 @@ from __future__ import annotations
 from html import escape
 import re
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from pydantic import BaseModel, ValidationError, field_validator
 
+from sruti.application.batch_scheduler import ExternalApiTask, execute_ordered_external_api_tasks
 from sruti.application.context import StageContext
 from sruti.application.stage_runner import StageRuntime
 from sruti.domain.enums import LlmProvider, StageId
@@ -50,17 +52,26 @@ class S06InvalidLlmJsonError(InvalidLlmJsonError):
         self.call_rows = call_rows
 
 
+@dataclass(slots=True)
+class BatchClassificationResult:
+    batch_index: int
+    spans: list[dict[str, Any]]
+    decisions: list[SpanDecision]
+    call_rows: list[dict[str, Any]]
+    error_message: str | None = None
+
+
 class S06RemoveNonLectureUseCase:
     stage_name = StageId.S06.value
 
     def __init__(
         self,
         *,
-        llm_client: LlmClient,
+        llm_client_factory: Callable[[], LlmClient],
         manifest_store: ManifestStore,
         ask_user: Callable[[str], bool] | None = None,
     ) -> None:
-        self._llm_client = llm_client
+        self._llm_client_factory = llm_client_factory
         self._manifest_store = manifest_store
         self._ask_user = ask_user
 
@@ -125,7 +136,8 @@ class S06RemoveNonLectureUseCase:
 
         try:
             runtime.start(manifest)
-            manifest.tool_versions["llm_provider"] = self._llm_client.provider_name()
+            llm_client = self._llm_client_factory()
+            manifest.tool_versions["llm_provider"] = llm_client.provider_name()
             manifest.tool_versions["llm_model"] = model
             source_text = input_path.read_text(encoding="utf-8")
             spans = self._to_spans(source_text)
@@ -147,7 +159,7 @@ class S06RemoveNonLectureUseCase:
                     ],
                 )
 
-            self._llm_client.ensure_model_available(model)
+            llm_client.ensure_model_available(model)
             guardrails = StageCostGuardrails(
                 settings=context.settings,
                 stage_id=StageId.S06,
@@ -160,6 +172,8 @@ class S06RemoveNonLectureUseCase:
                     context,
                     model=model,
                     guardrails=guardrails,
+                    provider_name=llm_client.provider_name(),
+                    llm_client=llm_client,
                 )
             except InvalidLlmJsonError as exc:
                 write_jsonl(llm_log_path, getattr(exc, "call_rows", []))
@@ -232,9 +246,11 @@ class S06RemoveNonLectureUseCase:
         *,
         model: str,
         guardrails: StageCostGuardrails,
+        provider_name: str,
+        llm_client: LlmClient,
     ) -> tuple[list[SpanDecision], list[dict[str, Any]]]:
         all_decisions: list[SpanDecision] = []
-        all_call_rows: list[dict[str, Any]] = []
+        raw_call_rows: list[dict[str, Any]] = []
         batches = self._split_span_batches(spans)
         prompts = [
             s06_classification_prompt(
@@ -249,33 +265,158 @@ class S06RemoveNonLectureUseCase:
             f"{preflight['estimated_output_tokens']}, est. cost ${preflight['estimated_cost_usd']}",
             verbose_only=True,
         )
-        for batch_index, batch in enumerate(batches, start=1):
-            try:
-                decisions, call_rows = self._classify_span_batch(
-                    spans=batch,
-                    context=context,
-                    model=model,
-                    prompt=prompts[batch_index - 1],
-                    guardrails=guardrails,
-                    batch_index=batch_index,
-                    batch_count=len(batches),
-                )
-            except InvalidLlmJsonError as exc:
-                failed_rows = getattr(exc, "call_rows", [])
-                raise S06InvalidLlmJsonError(
-                    str(exc),
-                    call_rows=[*all_call_rows, *failed_rows],
-                ) from exc
-            all_call_rows.extend(call_rows)
-            by_span_id = {item.span_id: item for item in decisions}
-            for span in batch:
+        batch_results = self._run_batch_classifications(
+            batches=batches,
+            prompts=prompts,
+            context=context,
+            model=model,
+            guardrails=guardrails,
+            provider_name=provider_name,
+            llm_client=llm_client,
+        )
+
+        for result in batch_results:
+            if result.error_message is not None:
+                finalized_rows = self._finalize_call_rows(raw_call_rows + result.call_rows, guardrails)
+                raise S06InvalidLlmJsonError(result.error_message, call_rows=finalized_rows)
+
+            raw_call_rows.extend(result.call_rows)
+            by_span_id = {item.span_id: item for item in result.decisions}
+            for span in result.spans:
                 span_id = int(span["span_id"])
                 decision = by_span_id.get(span_id)
                 if decision is None:
                     # Keep-by-default avoids accidental removals when the model omits a span.
                     decision = SpanDecision(span_id=span_id, action="KEEP")
                 all_decisions.append(decision)
-        return all_decisions, all_call_rows
+
+        return all_decisions, self._finalize_call_rows(raw_call_rows, guardrails)
+
+    def _run_batch_classifications(
+        self,
+        *,
+        batches: list[list[dict[str, Any]]],
+        prompts: list[str],
+        context: StageContext,
+        model: str,
+        guardrails: StageCostGuardrails,
+        provider_name: str,
+        llm_client: LlmClient,
+    ) -> list[BatchClassificationResult]:
+        if (
+            context.settings.llm_provider is not LlmProvider.OPENAI
+            or context.execution_coordinator is None
+            or context.execution_coordinator.max_external_api_parallelism() <= 1
+            or len(batches) <= 1
+        ):
+            results: list[BatchClassificationResult] = []
+            for batch_index, batch in enumerate(batches, start=1):
+                try:
+                    decisions, call_rows = self._classify_span_batch(
+                        spans=batch,
+                        context=context,
+                        model=model,
+                        prompt=prompts[batch_index - 1],
+                        guardrails=guardrails,
+                        batch_index=batch_index,
+                        batch_count=len(batches),
+                        provider_name=provider_name,
+                        llm_client=llm_client,
+                    )
+                except InvalidLlmJsonError as exc:
+                    results.append(
+                        BatchClassificationResult(
+                            batch_index=batch_index,
+                            spans=batch,
+                            decisions=[],
+                            call_rows=getattr(exc, "call_rows", []),
+                            error_message=str(exc),
+                        )
+                    )
+                    break
+                results.append(
+                    BatchClassificationResult(
+                        batch_index=batch_index,
+                        spans=batch,
+                        decisions=decisions,
+                        call_rows=call_rows,
+                    )
+                )
+            return results
+
+        coordinator = context.execution_coordinator
+        tasks: list[ExternalApiTask[BatchClassificationResult]] = []
+        total_batches = len(batches)
+        for batch_index, batch in enumerate(batches, start=1):
+            prompt = prompts[batch_index - 1]
+
+            def _run_batch(
+                current_batch_index: int = batch_index,
+                current_batch: list[dict[str, Any]] = batch,
+                current_prompt: str = prompt,
+            ) -> BatchClassificationResult:
+                try:
+                    decisions, call_rows = self._classify_span_batch(
+                        spans=current_batch,
+                        context=context,
+                        model=model,
+                        prompt=current_prompt,
+                        guardrails=guardrails,
+                        batch_index=current_batch_index,
+                        batch_count=total_batches,
+                        provider_name=provider_name,
+                        llm_client=None,
+                    )
+                except InvalidLlmJsonError as exc:
+                    return BatchClassificationResult(
+                        batch_index=current_batch_index,
+                        spans=current_batch,
+                        decisions=[],
+                        call_rows=getattr(exc, "call_rows", []),
+                        error_message=str(exc),
+                    )
+                return BatchClassificationResult(
+                    batch_index=current_batch_index,
+                    spans=current_batch,
+                    decisions=decisions,
+                    call_rows=call_rows,
+                )
+
+            tasks.append(
+                ExternalApiTask(
+                    index=batch_index,
+                    label=f"batch {batch_index}/{total_batches}",
+                    run=_run_batch,
+                )
+            )
+
+        return execute_ordered_external_api_tasks(
+            coordinator,
+            stage_id=StageId.S06,
+            tasks=tasks,
+        )
+
+    def _finalize_call_rows(
+        self,
+        raw_rows: list[dict[str, Any]],
+        guardrails: StageCostGuardrails,
+    ) -> list[dict[str, Any]]:
+        finalized_rows: list[dict[str, Any]] = []
+        for row in raw_rows:
+            est_input_tokens, est_output_tokens = guardrails.estimated_tokens_for_prompt(row["prompt"])
+            metrics = guardrails.record_call(
+                estimated_input_tokens=est_input_tokens,
+                estimated_output_tokens=est_output_tokens,
+                usage_input_tokens=row.get("usage_input_tokens"),
+                usage_output_tokens=row.get("usage_output_tokens"),
+            )
+            finalized = dict(row)
+            finalized["usage_input_tokens"] = metrics.input_tokens
+            finalized["usage_output_tokens"] = metrics.output_tokens
+            finalized["estimated_cost_usd"] = metrics.estimated_cost_usd
+            finalized["cumulative_cost_usd"] = metrics.cumulative_cost_usd
+            finalized_rows.append(finalized)
+        return finalized_rows
 
     def _split_span_batches(
         self,
@@ -314,10 +455,13 @@ class S06RemoveNonLectureUseCase:
         guardrails: StageCostGuardrails,
         batch_index: int,
         batch_count: int,
+        provider_name: str,
+        llm_client: LlmClient | None,
     ) -> tuple[list[SpanDecision], list[dict[str, Any]]]:
         max_attempts = context.settings.llm_json_max_retries + 1
         call_rows: list[dict[str, Any]] = []
         last_response = ""
+        client = llm_client if llm_client is not None else self._llm_client_factory()
         context.emit_progress(
             f"[s06] classifying span batch ({len(spans)} spans) {batch_index}/{batch_count}",
             verbose_only=True,
@@ -340,26 +484,23 @@ class S06RemoveNonLectureUseCase:
                 )
             prompt_hash = sha256_text(active_prompt)
             guardrails.before_call()
-            response_obj = self._llm_client.generate(
-                model=model,
-                prompt=active_prompt,
-                temperature=context.settings.s06_temperature,
-                timeout_seconds=context.settings.stage_timeout_seconds,
-            )
+            try:
+                response_obj = client.generate(
+                    model=model,
+                    prompt=active_prompt,
+                    temperature=context.settings.s06_temperature,
+                    timeout_seconds=context.settings.stage_timeout_seconds,
+                )
+            except Exception:
+                guardrails.record_failure()
+                raise
             response = response_obj.text.strip()
-            est_input_tokens, est_output_tokens = guardrails.estimated_tokens_for_prompt(active_prompt)
-            metrics = guardrails.record_call(
-                estimated_input_tokens=est_input_tokens,
-                estimated_output_tokens=est_output_tokens,
-                usage_input_tokens=response_obj.usage_input_tokens,
-                usage_output_tokens=response_obj.usage_output_tokens,
-            )
             row = {
                 "batch_index": batch_index,
                 "batch_count": batch_count,
                 "span_count": len(spans),
                 "retry_index": attempt,
-                "provider": self._llm_client.provider_name(),
+                "provider": provider_name,
                 "model": model,
                 "temperature": context.settings.s06_temperature,
                 "prompt_hash": prompt_hash,
@@ -367,10 +508,8 @@ class S06RemoveNonLectureUseCase:
                 "response": response,
                 "input_chars": len(active_prompt),
                 "output_chars": len(response),
-                "usage_input_tokens": metrics.input_tokens,
-                "usage_output_tokens": metrics.output_tokens,
-                "estimated_cost_usd": metrics.estimated_cost_usd,
-                "cumulative_cost_usd": metrics.cumulative_cost_usd,
+                "usage_input_tokens": response_obj.usage_input_tokens,
+                "usage_output_tokens": response_obj.usage_output_tokens,
             }
             call_rows.append(row)
             try:

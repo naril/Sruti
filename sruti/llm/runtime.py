@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from threading import Lock
 
 from sruti.config import Settings
 from sruti.domain.enums import LlmProvider, StageId
@@ -72,9 +73,11 @@ class StageCostGuardrails:
         self._model = model
         self._input_price_per_1m, self._output_price_per_1m = self._resolve_model_prices()
         self._calls = 0
+        self._inflight_calls = 0
         self._cum_input = 0
         self._cum_output = 0
         self._cum_cost = 0.0
+        self._lock = Lock()
 
     def preflight(self, prompts: list[str]) -> dict[str, float | int]:
         est_input = sum(estimate_tokens(prompt) for prompt in prompts)
@@ -106,11 +109,20 @@ class StageCostGuardrails:
     def before_call(self) -> None:
         if self._provider is not LlmProvider.OPENAI:
             return
-        if self._calls >= self._settings.max_llm_calls_per_stage:
-            raise StageExecutionError(
-                f"{self._stage_id.value}: exceeded max_llm_calls_per_stage="
-                f"{self._settings.max_llm_calls_per_stage}"
-            )
+        with self._lock:
+            if self._calls + self._inflight_calls >= self._settings.max_llm_calls_per_stage:
+                raise StageExecutionError(
+                    f"{self._stage_id.value}: exceeded max_llm_calls_per_stage="
+                    f"{self._settings.max_llm_calls_per_stage}"
+                )
+            self._inflight_calls += 1
+
+    def record_failure(self) -> None:
+        if self._provider is not LlmProvider.OPENAI:
+            return
+        with self._lock:
+            if self._inflight_calls > 0:
+                self._inflight_calls -= 1
 
     def record_call(
         self,
@@ -120,25 +132,28 @@ class StageCostGuardrails:
         usage_input_tokens: int | None,
         usage_output_tokens: int | None,
     ) -> CostMetrics:
-        self._calls += 1
-        input_tokens = usage_input_tokens if usage_input_tokens is not None else estimated_input_tokens
-        output_tokens = usage_output_tokens if usage_output_tokens is not None else estimated_output_tokens
-        call_cost = self._cost_usd(input_tokens, output_tokens)
-        self._cum_input += input_tokens
-        self._cum_output += output_tokens
-        self._cum_cost += call_cost
-        self._enforce_caps(
-            input_tokens=self._cum_input,
-            output_tokens=self._cum_output,
-            cost_usd=self._cum_cost,
-            phase="runtime",
-        )
-        return CostMetrics(
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            estimated_cost_usd=round(call_cost, 6),
-            cumulative_cost_usd=round(self._cum_cost, 6),
-        )
+        with self._lock:
+            if self._inflight_calls > 0:
+                self._inflight_calls -= 1
+            self._calls += 1
+            input_tokens = usage_input_tokens if usage_input_tokens is not None else estimated_input_tokens
+            output_tokens = usage_output_tokens if usage_output_tokens is not None else estimated_output_tokens
+            call_cost = self._cost_usd(input_tokens, output_tokens)
+            self._cum_input += input_tokens
+            self._cum_output += output_tokens
+            self._cum_cost += call_cost
+            self._enforce_caps(
+                input_tokens=self._cum_input,
+                output_tokens=self._cum_output,
+                cost_usd=self._cum_cost,
+                phase="runtime",
+            )
+            return CostMetrics(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                estimated_cost_usd=round(call_cost, 6),
+                cumulative_cost_usd=round(self._cum_cost, 6),
+            )
 
     def _resolve_model_prices(self) -> tuple[float, float]:
         model_lower = self._model.lower()

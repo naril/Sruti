@@ -7,6 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError, field_validator, model_validator
 
+from sruti.application.batch_scheduler import ExternalApiTask, execute_ordered_external_api_tasks
 from sruti.application.context import StageContext
 from sruti.application.stage_runner import StageRuntime
 from sruti.domain.enums import LlmProvider, StageId
@@ -64,6 +65,18 @@ class CandidateBlock(BaseModel):
         return self
 
 
+@dataclass(slots=True)
+class MapBatchResult:
+    batch_id: int
+    batch: ParagraphBatch
+    prompt: str
+    prompt_hash: str
+    response: str
+    parsed_blocks: list[CandidateBlock]
+    usage_input_tokens: int | None
+    usage_output_tokens: int | None
+
+
 class S08CondenseUseCase:
     stage_name = StageId.S08.value
     map_chunk_max_paragraphs = 8
@@ -72,11 +85,11 @@ class S08CondenseUseCase:
     def __init__(
         self,
         *,
-        llm_client: LlmClient,
+        llm_client_factory: Callable[[], LlmClient],
         manifest_store: ManifestStore,
         ask_user: Callable[[str], bool] | None = None,
     ) -> None:
-        self._llm_client = llm_client
+        self._llm_client_factory = llm_client_factory
         self._manifest_store = manifest_store
         self._ask_user = ask_user
 
@@ -134,7 +147,8 @@ class S08CondenseUseCase:
 
         try:
             runtime.start(manifest)
-            manifest.tool_versions["llm_provider"] = self._llm_client.provider_name()
+            llm_client = self._llm_client_factory()
+            manifest.tool_versions["llm_provider"] = llm_client.provider_name()
             manifest.tool_versions["llm_model"] = model
             source_text = input_path.read_text(encoding="utf-8")
             paragraphs = self._to_paragraphs(source_text)
@@ -148,7 +162,7 @@ class S08CondenseUseCase:
                     output_paths=[output_path, candidate_blocks_path, llm_log_path],
                 )
 
-            self._llm_client.ensure_model_available(model)
+            llm_client.ensure_model_available(model)
             guardrails = StageCostGuardrails(
                 settings=context.settings,
                 stage_id=StageId.S08,
@@ -171,50 +185,39 @@ class S08CondenseUseCase:
                 verbose_only=True,
             )
 
+            map_results = self._run_map_batches(
+                context=context,
+                llm_client=llm_client,
+                model=model,
+                batches=batches,
+                prompts=map_prompts,
+                guardrails=guardrails,
+            )
+
             call_rows: list[dict[str, Any]] = []
             candidate_blocks: list[CandidateBlock] = []
-            total_batches = len(batches)
-            for index, batch in enumerate(batches, start=1):
-                prompt = map_prompts[index - 1]
-                prompt_hash = sha256_text(prompt)
-                context.emit_progress(
-                    f"[s08] condense map batch {index}/{total_batches}",
-                    verbose_only=True,
-                )
-                guardrails.before_call()
-                response_obj = self._llm_client.generate(
-                    model=model,
-                    prompt=prompt,
-                    temperature=context.settings.s08_temperature,
-                    timeout_seconds=context.settings.stage_timeout_seconds,
-                )
-                response = response_obj.text.strip()
-                est_input_tokens, est_output_tokens = guardrails.estimated_tokens_for_prompt(prompt)
+            for result in map_results:
+                est_input_tokens, est_output_tokens = guardrails.estimated_tokens_for_prompt(result.prompt)
                 metrics = guardrails.record_call(
                     estimated_input_tokens=est_input_tokens,
                     estimated_output_tokens=est_output_tokens,
-                    usage_input_tokens=response_obj.usage_input_tokens,
-                    usage_output_tokens=response_obj.usage_output_tokens,
+                    usage_input_tokens=result.usage_input_tokens,
+                    usage_output_tokens=result.usage_output_tokens,
                 )
-                parsed_blocks = self._parse_map_response(
-                    response,
-                    min_paragraph=batch.start_paragraph,
-                    max_paragraph=batch.end_paragraph,
-                )
-                candidate_blocks.extend(parsed_blocks)
+                candidate_blocks.extend(result.parsed_blocks)
                 call_rows.append(
                     {
                         "phase": "map",
-                        "batch_id": index,
-                        "batch_start": batch.start_paragraph,
-                        "batch_end": batch.end_paragraph,
-                        "provider": self._llm_client.provider_name(),
+                        "batch_id": result.batch_id,
+                        "batch_start": result.batch.start_paragraph,
+                        "batch_end": result.batch.end_paragraph,
+                        "provider": llm_client.provider_name(),
                         "model": model,
                         "temperature": context.settings.s08_temperature,
-                        "prompt_hash": prompt_hash,
-                        "prompt": prompt,
-                        "response": response,
-                        "parsed_block_count": len(parsed_blocks),
+                        "prompt_hash": result.prompt_hash,
+                        "prompt": result.prompt,
+                        "response": result.response,
+                        "parsed_block_count": len(result.parsed_blocks),
                         "usage_input_tokens": metrics.input_tokens,
                         "usage_output_tokens": metrics.output_tokens,
                         "estimated_cost_usd": metrics.estimated_cost_usd,
@@ -225,9 +228,9 @@ class S08CondenseUseCase:
                     LlmCallRecord(
                         model=model,
                         temperature=context.settings.s08_temperature,
-                        prompt_hash=prompt_hash,
-                        input_chars=len(prompt),
-                        output_chars=len(response),
+                        prompt_hash=result.prompt_hash,
+                        input_chars=len(result.prompt),
+                        output_chars=len(result.response),
                     )
                 )
 
@@ -255,12 +258,16 @@ class S08CondenseUseCase:
             )
             context.emit_progress("[s08] condense reduce 1/1", verbose_only=True)
             guardrails.before_call()
-            reduce_response_obj = self._llm_client.generate(
-                model=model,
-                prompt=reduce_prompt,
-                temperature=context.settings.s08_temperature,
-                timeout_seconds=context.settings.stage_timeout_seconds,
-            )
+            try:
+                reduce_response_obj = llm_client.generate(
+                    model=model,
+                    prompt=reduce_prompt,
+                    temperature=context.settings.s08_temperature,
+                    timeout_seconds=context.settings.stage_timeout_seconds,
+                )
+            except Exception:
+                guardrails.record_failure()
+                raise
             reduce_response = reduce_response_obj.text.strip()
             est_input_tokens, est_output_tokens = guardrails.estimated_tokens_for_prompt(reduce_prompt)
             reduce_metrics = guardrails.record_call(
@@ -273,7 +280,7 @@ class S08CondenseUseCase:
             call_rows.append(
                 {
                     "phase": "reduce",
-                    "provider": self._llm_client.provider_name(),
+                    "provider": llm_client.provider_name(),
                     "model": model,
                     "temperature": context.settings.s08_temperature,
                     "prompt_hash": reduce_prompt_hash,
@@ -311,6 +318,127 @@ class S08CondenseUseCase:
         except Exception as exc:
             runtime.mark_failure(manifest, str(exc))
             raise
+
+    def _run_map_batches(
+        self,
+        *,
+        context: StageContext,
+        llm_client: LlmClient,
+        model: str,
+        batches: list[ParagraphBatch],
+        prompts: list[str],
+        guardrails: StageCostGuardrails,
+    ) -> list[MapBatchResult]:
+        if (
+            context.settings.llm_provider is not LlmProvider.OPENAI
+            or context.execution_coordinator is None
+            or context.execution_coordinator.max_external_api_parallelism() <= 1
+            or len(batches) <= 1
+        ):
+            results: list[MapBatchResult] = []
+            total_batches = len(batches)
+            for index, batch in enumerate(batches, start=1):
+                prompt = prompts[index - 1]
+                prompt_hash = sha256_text(prompt)
+                results.append(
+                    self._map_batch_result(
+                        context=context,
+                        llm_client=llm_client,
+                        model=model,
+                        batch=batch,
+                        batch_id=index,
+                        total_batches=total_batches,
+                        prompt=prompt,
+                        prompt_hash=prompt_hash,
+                        guardrails=guardrails,
+                    )
+                )
+            return results
+
+        coordinator = context.execution_coordinator
+        total_batches = len(batches)
+        tasks: list[ExternalApiTask[MapBatchResult]] = []
+        for index, batch in enumerate(batches, start=1):
+            prompt = prompts[index - 1]
+            prompt_hash = sha256_text(prompt)
+
+            def _run_batch(
+                batch_id: int = index,
+                batch_value: ParagraphBatch = batch,
+                prompt_value: str = prompt,
+                prompt_hash_value: str = prompt_hash,
+            ) -> MapBatchResult:
+                client = self._llm_client_factory()
+                return self._map_batch_result(
+                    context=context,
+                    llm_client=client,
+                    model=model,
+                    batch=batch_value,
+                    batch_id=batch_id,
+                    total_batches=total_batches,
+                    prompt=prompt_value,
+                    prompt_hash=prompt_hash_value,
+                    guardrails=guardrails,
+                )
+
+            tasks.append(
+                ExternalApiTask(
+                    index=index,
+                    label=f"map batch {index}/{total_batches}",
+                    run=_run_batch,
+                )
+            )
+
+        return execute_ordered_external_api_tasks(
+            coordinator,
+            stage_id=StageId.S08,
+            tasks=tasks,
+        )
+
+    def _map_batch_result(
+        self,
+        *,
+        context: StageContext,
+        llm_client: LlmClient,
+        model: str,
+        batch: ParagraphBatch,
+        batch_id: int,
+        total_batches: int,
+        prompt: str,
+        prompt_hash: str,
+        guardrails: StageCostGuardrails,
+    ) -> MapBatchResult:
+        context.emit_progress(
+            f"[s08] condense map batch {batch_id}/{total_batches}",
+            verbose_only=True,
+        )
+        guardrails.before_call()
+        try:
+            response_obj = llm_client.generate(
+                model=model,
+                prompt=prompt,
+                temperature=context.settings.s08_temperature,
+                timeout_seconds=context.settings.stage_timeout_seconds,
+            )
+        except Exception:
+            guardrails.record_failure()
+            raise
+        response = response_obj.text.strip()
+        parsed_blocks = self._parse_map_response(
+            response,
+            min_paragraph=batch.start_paragraph,
+            max_paragraph=batch.end_paragraph,
+        )
+        return MapBatchResult(
+            batch_id=batch_id,
+            batch=batch,
+            prompt=prompt,
+            prompt_hash=prompt_hash,
+            response=response,
+            parsed_blocks=parsed_blocks,
+            usage_input_tokens=response_obj.usage_input_tokens,
+            usage_output_tokens=response_obj.usage_output_tokens,
+        )
 
     def _to_paragraphs(self, text: str) -> list[str]:
         return [part.strip() for part in text.split("\n\n") if part.strip()]

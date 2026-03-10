@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
-from typing import Any
+from typing import Any, Protocol
 
+from sruti.application.batch_scheduler import ExternalApiTask, execute_ordered_external_api_tasks
 from sruti.application.context import StageContext
 from sruti.application.stage_runner import StageRuntime
 from sruti.domain.enums import LlmProvider, StageId
-from sruti.domain.models import LlmCallRecord, StageResult
+from sruti.domain.models import LlmCallRecord, LlmGenerateResult, StageResult
 from sruti.domain.ports import LlmClient, ManifestStore
 from sruti.llm.chunking import chunk_text
 from sruti.llm.runtime import StageCostGuardrails, resolve_llm_model
@@ -20,6 +21,17 @@ from sruti.util.system import require_executable, require_file
 
 class PromptBuilder(Protocol):
     def __call__(self, text: str, *, template_dir: Path | None = None) -> str: ...
+
+
+@dataclass(slots=True)
+class ChunkCallResult:
+    chunk_id: int
+    chunk_text: str
+    prompt: str
+    prompt_hash: str
+    response: str
+    usage_input_tokens: int | None
+    usage_output_tokens: int | None
 
 
 class LlmTextTransformUseCase:
@@ -35,11 +47,11 @@ class LlmTextTransformUseCase:
     def __init__(
         self,
         *,
-        llm_client: LlmClient,
+        llm_client_factory: Callable[[], LlmClient],
         manifest_store: ManifestStore,
         ask_user: Callable[[str], bool] | None = None,
     ) -> None:
-        self._llm_client = llm_client
+        self._llm_client_factory = llm_client_factory
         self._manifest_store = manifest_store
         self._ask_user = ask_user
 
@@ -102,7 +114,8 @@ class LlmTextTransformUseCase:
 
         try:
             runtime.start(manifest)
-            manifest.tool_versions["llm_provider"] = self._llm_client.provider_name()
+            llm_client = self._llm_client_factory()
+            manifest.tool_versions["llm_provider"] = llm_client.provider_name()
             manifest.tool_versions["llm_model"] = model
             source_text = input_path.read_text(encoding="utf-8")
             chunks = chunk_text(source_text, max_chars=self.chunk_max_chars)
@@ -127,47 +140,50 @@ class LlmTextTransformUseCase:
                     f"est. cost ${preflight['estimated_cost_usd']}",
                     verbose_only=True,
                 )
+                llm_client.ensure_model_available(model)
 
-            if chunks:
-                self._llm_client.ensure_model_available(model)
+            if self._should_parallelize(context=context, chunk_count=len(chunks)):
+                results = self._run_parallel_chunks(
+                    context=context,
+                    model=model,
+                    temperature=temperature,
+                    chunks=chunks,
+                    prompts=prompts,
+                    guardrails=guardrails,
+                )
+            else:
+                results = self._run_sequential_chunks(
+                    context=context,
+                    llm_client=llm_client,
+                    model=model,
+                    temperature=temperature,
+                    chunks=chunks,
+                    prompts=prompts,
+                    guardrails=guardrails,
+                )
 
             output_chunks: list[str] = []
             call_rows: list[dict[str, Any]] = []
-            total_chunks = len(chunks)
-            for idx, chunk in enumerate(chunks, start=1):
-                prompt = prompts[idx - 1]
-                prompt_hash = sha256_text(prompt)
-                context.emit_progress(
-                    f"[{self.stage_id.value}] llm chunk {idx}/{total_chunks}",
-                    verbose_only=True,
-                )
-                guardrails.before_call()
-                response_obj = self._llm_client.generate(
-                    model=model,
-                    prompt=prompt,
-                    temperature=temperature,
-                    timeout_seconds=context.settings.stage_timeout_seconds,
-                )
-                response = response_obj.text.strip()
-                est_input_tokens, est_output_tokens = guardrails.estimated_tokens_for_prompt(prompt)
+            for result in results:
+                est_input_tokens, est_output_tokens = guardrails.estimated_tokens_for_prompt(result.prompt)
                 metrics = guardrails.record_call(
                     estimated_input_tokens=est_input_tokens,
                     estimated_output_tokens=est_output_tokens,
-                    usage_input_tokens=response_obj.usage_input_tokens,
-                    usage_output_tokens=response_obj.usage_output_tokens,
+                    usage_input_tokens=result.usage_input_tokens,
+                    usage_output_tokens=result.usage_output_tokens,
                 )
-                output_chunks.append(response)
+                output_chunks.append(result.response)
                 call_rows.append(
                     {
-                        "chunk_id": idx,
-                        "provider": self._llm_client.provider_name(),
+                        "chunk_id": result.chunk_id,
+                        "provider": llm_client.provider_name(),
                         "model": model,
                         "temperature": temperature,
-                        "prompt_hash": prompt_hash,
-                        "prompt": prompt,
-                        "response": response,
-                        "input_chars": len(chunk),
-                        "output_chars": len(response),
+                        "prompt_hash": result.prompt_hash,
+                        "prompt": result.prompt,
+                        "response": result.response,
+                        "input_chars": len(result.chunk_text),
+                        "output_chars": len(result.response),
                         "usage_input_tokens": metrics.input_tokens,
                         "usage_output_tokens": metrics.output_tokens,
                         "estimated_cost_usd": metrics.estimated_cost_usd,
@@ -178,9 +194,9 @@ class LlmTextTransformUseCase:
                     LlmCallRecord(
                         model=model,
                         temperature=temperature,
-                        prompt_hash=prompt_hash,
-                        input_chars=len(chunk),
-                        output_chars=len(response),
+                        prompt_hash=result.prompt_hash,
+                        input_chars=len(result.chunk_text),
+                        output_chars=len(result.response),
                     )
                 )
 
@@ -194,3 +210,136 @@ class LlmTextTransformUseCase:
         except Exception as exc:
             runtime.mark_failure(manifest, str(exc))
             raise
+
+    def _should_parallelize(self, *, context: StageContext, chunk_count: int) -> bool:
+        return (
+            context.settings.llm_provider is LlmProvider.OPENAI
+            and context.execution_coordinator is not None
+            and context.execution_coordinator.max_external_api_parallelism() > 1
+            and chunk_count > 1
+        )
+
+    def _run_sequential_chunks(
+        self,
+        *,
+        context: StageContext,
+        llm_client: LlmClient,
+        model: str,
+        temperature: float,
+        chunks: list[str],
+        prompts: list[str],
+        guardrails: StageCostGuardrails,
+    ) -> list[ChunkCallResult]:
+        results: list[ChunkCallResult] = []
+        total_chunks = len(chunks)
+        for idx, chunk in enumerate(chunks, start=1):
+            prompt = prompts[idx - 1]
+            prompt_hash = sha256_text(prompt)
+            context.emit_progress(
+                f"[{self.stage_id.value}] llm chunk {idx}/{total_chunks}",
+                verbose_only=True,
+            )
+            guardrails.before_call()
+            try:
+                response_obj = llm_client.generate(
+                    model=model,
+                    prompt=prompt,
+                    temperature=temperature,
+                    timeout_seconds=context.settings.stage_timeout_seconds,
+                )
+            except Exception:
+                guardrails.record_failure()
+                raise
+            results.append(
+                self._chunk_result(
+                    chunk_id=idx,
+                    chunk=chunk,
+                    prompt=prompt,
+                    prompt_hash=prompt_hash,
+                    response_obj=response_obj,
+                )
+            )
+        return results
+
+    def _run_parallel_chunks(
+        self,
+        *,
+        context: StageContext,
+        model: str,
+        temperature: float,
+        chunks: list[str],
+        prompts: list[str],
+        guardrails: StageCostGuardrails,
+    ) -> list[ChunkCallResult]:
+        coordinator = context.execution_coordinator
+        if coordinator is None:
+            raise RuntimeError("parallel execution requires execution coordinator")
+
+        total_chunks = len(chunks)
+        tasks: list[ExternalApiTask[ChunkCallResult]] = []
+        for idx, chunk in enumerate(chunks, start=1):
+            prompt = prompts[idx - 1]
+            prompt_hash = sha256_text(prompt)
+
+            def _run_chunk(
+                chunk_id: int = idx,
+                chunk_text_value: str = chunk,
+                prompt_value: str = prompt,
+                prompt_hash_value: str = prompt_hash,
+            ) -> ChunkCallResult:
+                context.emit_progress(
+                    f"[{self.stage_id.value}] llm chunk {chunk_id}/{total_chunks}",
+                    verbose_only=True,
+                )
+                guardrails.before_call()
+                client = self._llm_client_factory()
+                try:
+                    response_obj = client.generate(
+                        model=model,
+                        prompt=prompt_value,
+                        temperature=temperature,
+                        timeout_seconds=context.settings.stage_timeout_seconds,
+                    )
+                except Exception:
+                    guardrails.record_failure()
+                    raise
+                return self._chunk_result(
+                    chunk_id=chunk_id,
+                    chunk=chunk_text_value,
+                    prompt=prompt_value,
+                    prompt_hash=prompt_hash_value,
+                    response_obj=response_obj,
+                )
+
+            tasks.append(
+                ExternalApiTask(
+                    index=idx,
+                    label=f"chunk {idx}/{total_chunks}",
+                    run=_run_chunk,
+                )
+            )
+
+        return execute_ordered_external_api_tasks(
+            coordinator,
+            stage_id=self.stage_id,
+            tasks=tasks,
+        )
+
+    def _chunk_result(
+        self,
+        *,
+        chunk_id: int,
+        chunk: str,
+        prompt: str,
+        prompt_hash: str,
+        response_obj: LlmGenerateResult,
+    ) -> ChunkCallResult:
+        return ChunkCallResult(
+            chunk_id=chunk_id,
+            chunk_text=chunk,
+            prompt=prompt,
+            prompt_hash=prompt_hash,
+            response=response_obj.text.strip(),
+            usage_input_tokens=response_obj.usage_input_tokens,
+            usage_output_tokens=response_obj.usage_output_tokens,
+        )
