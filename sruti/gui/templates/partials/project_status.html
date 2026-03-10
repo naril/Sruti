@@ -1,0 +1,29 @@
+<div class="status-grid">
+  <article class="status-card">
+    <span class="status-label">Status</span>
+    <strong>{{ status }}</strong>
+  </article>
+  <article class="status-card">
+    <span class="status-label">Last updated</span>
+    <strong>{{ last_updated or "n/a" }}</strong>
+  </article>
+  {% if project.project_type.value == "batch" and summary %}
+    <article class="status-card">
+      <span class="status-label">Total runs</span>
+      <strong>{{ summary["total_runs"] }}</strong>
+    </article>
+    <article class="status-card">
+      <span class="status-label">Running runs</span>
+      <strong>{{ summary["running_runs"] }}</strong>
+    </article>
+  {% elif summary %}
+    <article class="status-card">
+      <span class="status-label">Current stage</span>
+      <strong>{{ summary.get("current_stage") or "n/a" }}</strong>
+    </article>
+    <article class="status-card">
+      <span class="status-label">Input path</span>
+      <strong>{{ summary.get("input_path") or "n/a" }}</strong>
+    </article>
+  {% endif %}
+</div>

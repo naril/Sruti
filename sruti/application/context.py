@@ -75,3 +75,5 @@ class StageContext:
         if verbose_only and not self.verbose:
             return
         self.progress_emitter(message)
+        if self.execution_coordinator is not None:
+            self.execution_coordinator.emit_progress(message)

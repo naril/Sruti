@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}sruti GUI | {{ batch_project.name }} / {{ run_name }}{% endblock %}
+{% block page_title %}{{ batch_project.name }} / {{ run_name }}{% endblock %}
+{% block lede %}Per-file drill-down uvnitř batch projektu.{% endblock %}
+{% block content %}
+  <section class="subnav">
+    <a href="/projects/{{ batch_project.name }}">Back to batch</a>
+    {% if final_output %}
+      <a href="/projects/{{ batch_project.name }}/artifact?path={{ final_output.relative_to(batch_project.path) }}">Final output</a>
+    {% endif %}
+  </section>
+  <section class="panel">
+    <h2>Run state</h2>
+    {% if run_state %}
+      <pre class="code-block">{{ run_state }}</pre>
+    {% else %}
+      <p class="empty">No `run_state.json` yet.</p>
+    {% endif %}
+  </section>
+  <section class="panel">
+    <h2>Stages</h2>
+    <div class="stage-grid">
+      {% for stage in stages %}
+        <article class="stage-card">
+          <div class="card-top">
+            <span class="chip">{{ stage.id.value }}</span>
+            {% if stage.manifest %}
+              <span class="chip outline">{{ stage.manifest.status.value }}</span>
+            {% else %}
+              <span class="chip outline">not-run</span>
+            {% endif %}
+          </div>
+          <h3>{{ stage.dir.name }}</h3>
+          {% if stage.artifacts %}
+            <p class="muted">{{ stage.artifacts|length }} artifacts</p>
+            <a class="mini-link" href="/projects/{{ batch_project.name }}/artifact?path={{ stage.artifacts[0].path.relative_to(batch_project.path) }}">open first artifact</a>
+          {% else %}
+            <p class="muted">No artifacts yet.</p>
+          {% endif %}
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="cs">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}sruti GUI{% endblock %}</title>
+    <link rel="stylesheet" href="/static/app.css" />
+    <script defer src="/static/app.js"></script>
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <div>
+          <a class="eyebrow" href="/">sruti local GUI</a>
+          <h1>{% block page_title %}Workspace{% endblock %}</h1>
+          <p class="lede">{% block lede %}Lokální webové rozhraní nad filesystemem a existujícím pipeline runtime.{% endblock %}</p>
+        </div>
+        <nav class="topnav">
+          <a href="/">Dashboard</a>
+          <a href="/projects/new">New Project</a>
+        </nav>
+      </header>
+      <main class="content">{% block content %}{% endblock %}</main>
+    </div>
+  </body>
+</html>

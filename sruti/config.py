@@ -8,7 +8,7 @@ from typing import Any, Mapping
 
 from pydantic import BaseModel, Field
 
-from sruti.domain.enums import LlmProvider
+from sruti.domain.enums import LlmProvider, ProjectType
 
 
 class Settings(BaseModel):
@@ -68,6 +68,18 @@ class Settings(BaseModel):
     }
 
 
+class GuiSettings(BaseModel):
+    project_type: ProjectType | None = None
+    input_path: str = ""
+    input_dir: str = ""
+    created_by: str = ""
+
+    model_config = {
+        "frozen": True,
+        "extra": "ignore",
+    }
+
+
 def load_settings(run_dir: Path | None = None) -> Settings:
     """Load settings with optional run-local override from RUN_DIR/pipeline.toml."""
 
@@ -93,6 +105,20 @@ def load_settings(run_dir: Path | None = None) -> Settings:
     if values.get("prompt_templates_dir") == "":
         values["prompt_templates_dir"] = None
     return Settings.model_validate(values)
+
+
+def load_gui_settings(run_dir: Path | None) -> GuiSettings:
+    if run_dir is None:
+        return GuiSettings()
+    config_path = run_dir / "pipeline.toml"
+    if not config_path.exists():
+        return GuiSettings()
+    with config_path.open("rb") as handle:
+        raw: dict[str, Any] = tomllib.load(handle)
+    raw_values = raw.get("gui", {})
+    if not isinstance(raw_values, dict):
+        return GuiSettings()
+    return GuiSettings.model_validate(raw_values)
 
 
 def _apply_legacy_stage_key_mapping(

@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}sruti GUI | {{ project.name }} settings{% endblock %}
+{% block page_title %}{{ project.name }} Pipeline{% endblock %}
+{% block lede %}Structured editor pro `[sruti]` a raw editor pro celý `pipeline.toml`.{% endblock %}
+{% block content %}
+  <section class="subnav">
+    <a href="/projects/{{ project.name }}">Overview</a>
+    <a href="/projects/{{ project.name }}/settings">Pipeline</a>
+    <a href="/projects/{{ project.name }}/prompts">Prompts</a>
+  </section>
+  {% if request.query_params.get("saved") %}
+    <p class="flash success">Settings saved.</p>
+  {% endif %}
+  <section class="panel">
+    <h2>Structured editor</h2>
+    <form method="post" action="/projects/{{ project.name }}/settings" class="stack-form">
+      <input type="hidden" name="mode" value="structured" />
+      <div class="grid-form">
+        <label>
+          <span>Input path</span>
+          <input name="input_path" value="{{ project.gui_settings.input_path }}" />
+        </label>
+        <label>
+          <span>Input dir</span>
+          <input name="input_dir" value="{{ project.gui_settings.input_dir }}" />
+        </label>
+      </div>
+      {% for group in settings_groups %}
+        <div class="settings-group">
+          <h3>{{ group.name }}</h3>
+          <div class="grid-form">
+            {% for field in group.fields %}
+              <label>
+                <span>{{ field.name }}</span>
+                {% if field.input_type == "select" %}
+                  <select name="{{ field.name }}">
+                    {% for option in field.options %}
+                      <option value="{{ option }}" {% if option == field.value.value %}selected{% endif %}>{{ option }}</option>
+                    {% endfor %}
+                  </select>
+                {% else %}
+                  <input name="{{ field.name }}" value="{{ field.value }}" />
+                {% endif %}
+              </label>
+            {% endfor %}
+          </div>
+        </div>
+      {% endfor %}
+      <button class="button" type="submit">Save structured settings</button>
+    </form>
+  </section>
+  <section class="panel">
+    <h2>Raw `pipeline.toml`</h2>
+    <form method="post" action="/projects/{{ project.name }}/settings" class="stack-form">
+      <input type="hidden" name="mode" value="raw" />
+      <textarea name="raw_toml" rows="30">{{ raw_toml }}</textarea>
+      <button class="button secondary" type="submit">Save raw TOML</button>
+    </form>
+  </section>
+{% endblock %}

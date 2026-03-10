@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}sruti GUI | Dashboard{% endblock %}
+{% block page_title %}Workspace Dashboard{% endblock %}
+{% block lede %}Přehled single runů a batch projektů pod aktivním workspace rootem.{% endblock %}
+{% block content %}
+  <div id="dashboard-panels" data-poll-url="/dashboard/partial" data-poll-interval="5000">
+    {% include "partials/dashboard_panels.html" %}
+  </div>
+{% endblock %}

@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}sruti GUI | {{ project.name }} {{ stage.id.value }}{% endblock %}
+{% block page_title %}{{ project.name }} {{ stage.id.value }}{% endblock %}
+{% block lede %}Artifacts a manifest pro {{ stage.dir.name }}.{% endblock %}
+{% block content %}
+  <section class="subnav">
+    <a href="/projects/{{ project.name }}">Overview</a>
+    <a href="/projects/{{ project.name }}/settings">Pipeline</a>
+    <a href="/projects/{{ project.name }}/prompts">Prompts</a>
+  </section>
+  <section class="panel">
+    <div class="panel-head">
+      <h2>{{ stage.dir.name }}</h2>
+      {% if stage.manifest %}
+        <span class="chip">{{ stage.manifest.status.value }}</span>
+      {% endif %}
+    </div>
+    {% if stage.manifest %}
+      <pre class="code-block">{{ stage.manifest.model_dump_json(indent=2) }}</pre>
+    {% else %}
+      <p class="empty">No manifest yet.</p>
+    {% endif %}
+  </section>
+  <section class="panel">
+    <h2>Artifacts</h2>
+    {% if stage.artifacts %}
+      {% for artifact in stage.artifacts %}
+        <article class="artifact-card">
+          <div class="panel-head">
+            <h3>{{ artifact.relative_path }}</h3>
+            <a class="mini-link" href="/projects/{{ project.name }}/artifact?path={{ artifact.relative_path }}">download/open</a>
+          </div>
+          {% if artifact.preview.kind == "text" %}
+            <pre class="code-block">{{ artifact.preview.content }}</pre>
+          {% elif artifact.preview.kind == "html" %}
+            <iframe class="artifact-frame" src="/projects/{{ project.name }}/artifact?path={{ artifact.relative_path }}"></iframe>
+          {% elif artifact.preview.kind == "audio" %}
+            <audio controls preload="none" src="/projects/{{ project.name }}/artifact?path={{ artifact.relative_path }}"></audio>
+          {% else %}
+            <p class="muted">Binary artifact preview is not available.</p>
+          {% endif %}
+        </article>
+      {% endfor %}
+    {% else %}
+      <p class="empty">No artifacts in this stage directory.</p>
+    {% endif %}
+  </section>
+{% endblock %}

@@ -1,20 +1,17 @@
 from __future__ import annotations
 
-import json
-import re
-from contextlib import nullcontext
 from pathlib import Path
 
 import typer
 
-from sruti.application.batch_scheduler import BatchScheduler, BatchSchedulerConfig, RunWorkItem
-from sruti.application.context import StageContext
-from sruti.config import load_settings, render_default_pipeline_toml
-from sruti.domain.enums import LlmProvider, OnExistsMode, StageId
-from sruti.domain.errors import SrutiError
-from sruti.domain.models import StageResult
-from sruti.domain.policies import stage_ids_in_range
-from sruti.stages import (
+from sruti.application.project_service import ProjectInitializer
+from sruti.application.run_service import (
+    BatchRunRequest,
+    RunRequest,
+    build_stage_context,
+    execute_batch_run,
+    execute_run,
+    run_single_stage,
     s01_normalize,
     s02_chunk,
     s03_asr_whispercli,
@@ -26,29 +23,12 @@ from sruti.stages import (
     s09_translate_faithful,
     s10_translate_edit,
 )
-from sruti.util.io import atomic_write_json
+from sruti.config import load_settings
+from sruti.domain.enums import LlmProvider, OnExistsMode, ProjectType, StageId
+from sruti.domain.errors import SrutiError
+from sruti.domain.models import StageResult
 
 app = typer.Typer(no_args_is_help=True, help="sruti: local lecture pipeline")
-
-BATCH_MANIFEST_FILENAME = "batch_manifest.json"
-AUDIO_EXTENSIONS: set[str] = {
-    ".aac",
-    ".aif",
-    ".aiff",
-    ".flac",
-    ".m4a",
-    ".m4b",
-    ".mka",
-    ".mp3",
-    ".mp4",
-    ".oga",
-    ".ogg",
-    ".opus",
-    ".wav",
-    ".webm",
-    ".wma",
-}
-RUN_DIR_NAME_SANITIZER = re.compile(r"[^A-Za-z0-9._-]+")
 
 
 def _not_implemented(stage: str) -> None:
@@ -77,60 +57,20 @@ def _stage_context(
     token_cap_input: int | None,
     token_cap_output: int | None,
     execution_coordinator=None,
-) -> StageContext:
-    return StageContext.build(
+):
+    return build_stage_context(
         run_dir=run_dir,
         settings_dir=settings_dir,
         on_exists=on_exists,
         dry_run=dry_run,
         force=force,
         verbose=verbose,
-        llm_provider_override=llm_provider,
-        cost_cap_usd_override=cost_cap_usd,
-        token_cap_input_override=token_cap_input,
-        token_cap_output_override=token_cap_output,
+        llm_provider=llm_provider,
+        cost_cap_usd=cost_cap_usd,
+        token_cap_input=token_cap_input,
+        token_cap_output=token_cap_output,
         progress_emitter=_emit_progress,
         execution_coordinator=execution_coordinator,
-    )
-
-
-def _build_batch_scheduler_config(
-    *,
-    runs_root: Path,
-    max_active_runs: int | None,
-    local_slots: int | None,
-    external_api_slots: int | None,
-    external_api_slots_per_run: int | None,
-) -> BatchSchedulerConfig:
-    settings = load_settings(runs_root)
-    resolved_max_active_runs = (
-        settings.batch_max_active_runs if max_active_runs is None else max_active_runs
-    )
-    resolved_local_slots = settings.batch_local_slots if local_slots is None else local_slots
-    resolved_external_api_slots = (
-        settings.batch_external_api_slots if external_api_slots is None else external_api_slots
-    )
-    resolved_external_api_slots_per_run = (
-        settings.batch_external_api_slots_per_run
-        if external_api_slots_per_run is None
-        else external_api_slots_per_run
-    )
-
-    if resolved_max_active_runs < 0:
-        raise typer.BadParameter("batch max active runs must be >= 0.")
-    if resolved_local_slots < 1:
-        raise typer.BadParameter("batch local slots must be >= 1.")
-    if resolved_external_api_slots < 1:
-        raise typer.BadParameter("batch external API slots must be >= 1.")
-    if resolved_external_api_slots_per_run < 1:
-        raise typer.BadParameter("batch external API slots per run must be >= 1.")
-
-    return BatchSchedulerConfig(
-        runs_root=runs_root,
-        max_active_runs=resolved_max_active_runs,
-        local_slots=resolved_local_slots,
-        external_api_slots=resolved_external_api_slots,
-        external_api_slots_per_run=resolved_external_api_slots_per_run,
     )
 
 
@@ -149,178 +89,16 @@ def _handle_failure(exc: Exception) -> None:
     raise exc
 
 
-def _run_stage_range(
-    *,
-    context: StageContext,
-    source_stage: StageId,
-    target_stage: StageId,
-    in_path: Path | None,
-    seconds: int | None,
-    model_path: Path | None,
-    command_label: str,
-) -> None:
-    context.emit_progress(
-        f"[{command_label}] starting: {source_stage.value}->{target_stage.value} in {context.run_dir}"
-    )
-    for stage_id in stage_ids_in_range(source_stage, target_stage):
-        stage_scope = (
-            context.execution_coordinator.stage_scope(
-                stage_id,
-                llm_provider=context.settings.llm_provider,
-            )
-            if context.execution_coordinator is not None
-            else nullcontext()
-        )
-        with stage_scope:
-            result = _run_single_stage(
-                stage_id=stage_id,
-                context=context,
-                in_path=in_path,
-                seconds=seconds,
-                model_path=model_path,
-            )
-        _print_result(result, include_status=False)
-
-
-def _discover_audio_files(input_dir: Path) -> list[Path]:
-    files = [
-        path
-        for path in input_dir.rglob("*")
-        if path.is_file() and path.suffix.lower() in AUDIO_EXTENSIONS
-    ]
-    return sorted(files, key=lambda path: str(path.relative_to(input_dir)))
-
-
-def _load_batch_mapping(runs_root: Path) -> dict[str, str]:
-    manifest_path = runs_root / BATCH_MANIFEST_FILENAME
-    if not manifest_path.exists():
-        return {}
-    try:
-        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"{manifest_path} is not valid JSON: {exc.msg}") from exc
-    if not isinstance(payload, dict):
-        raise ValueError(f"{manifest_path} must contain a JSON object.")
-    raw_mapping = payload.get("audio_to_run_dir")
-    if not isinstance(raw_mapping, dict):
-        raise ValueError(f"{manifest_path} must contain object key 'audio_to_run_dir'.")
-    mapping: dict[str, str] = {}
-    for key, value in raw_mapping.items():
-        if not isinstance(key, str) or not isinstance(value, str):
-            raise ValueError(f"{manifest_path} contains non-string mapping entries.")
-        if not value or value in {".", ".."} or "/" in value or "\\" in value:
-            raise ValueError(f"{manifest_path} contains invalid run dir name '{value}'.")
-        mapping[key] = value
-    if len(set(mapping.values())) != len(mapping):
-        raise ValueError(f"{manifest_path} contains duplicate run dir assignments.")
-    return mapping
-
-
-def _save_batch_mapping(runs_root: Path, mapping: dict[str, str]) -> None:
-    manifest_path = runs_root / BATCH_MANIFEST_FILENAME
-    payload = {"audio_to_run_dir": dict(sorted(mapping.items()))}
-    atomic_write_json(manifest_path, payload)
-
-
-def _sanitize_run_dir_name(stem: str) -> str:
-    normalized = RUN_DIR_NAME_SANITIZER.sub("-", stem).strip("._-").lower()
-    return normalized or "audio"
-
-
-def _next_run_dir_name(base_stem: str, used_names: set[str]) -> str:
-    candidate = _sanitize_run_dir_name(base_stem)
-    if candidate not in used_names:
-        return candidate
-    suffix = 2
-    while True:
-        suffixed = f"{candidate}-{suffix}"
-        if suffixed not in used_names:
-            return suffixed
-        suffix += 1
-
-
-def _assign_batch_run_dirs(
-    *,
-    runs_root: Path,
-    audio_files: list[Path],
-    mapping: dict[str, str],
-) -> tuple[dict[Path, Path], bool]:
-    used_names = {path.name for path in runs_root.iterdir() if path.is_dir()}
-    used_names.update(mapping.values())
-    assignments: dict[Path, Path] = {}
-    changed = False
-    for audio_path in audio_files:
-        key = str(audio_path.resolve())
-        run_dir_name = mapping.get(key)
-        if run_dir_name is None:
-            run_dir_name = _next_run_dir_name(audio_path.stem, used_names)
-            mapping[key] = run_dir_name
-            changed = True
-        used_names.add(run_dir_name)
-        assignments[audio_path] = runs_root / run_dir_name
-    return assignments, changed
-
-
-def _batch_error_message(exc: Exception) -> str:
-    if isinstance(exc, (SrutiError, ValueError, FileNotFoundError, typer.BadParameter)):
-        return str(exc)
-    return f"{exc.__class__.__name__}: {exc}"
-
-
-def _run_single_stage(
-    *,
-    stage_id: StageId,
-    context: StageContext,
-    in_path: Path | None,
-    seconds: int | None,
-    model_path: Path | None,
-) -> StageResult:
-    if stage_id is StageId.S01:
-        if in_path is None:
-            raise typer.BadParameter("--in is required when running s01.")
-        return s01_normalize.run_stage(context=context, input_audio=in_path, ask_user=_ask_user)
-    if stage_id is StageId.S02:
-        effective_seconds = seconds if seconds is not None else context.settings.chunk_seconds
-        return s02_chunk.run_stage(context=context, seconds=effective_seconds, ask_user=_ask_user)
-    if stage_id is StageId.S03:
-        effective_model_path = (
-            model_path
-            if model_path is not None
-            else context.settings.default_whisper_model_path
-        )
-        return s03_asr_whispercli.run_stage(
-            context=context,
-            model_path=effective_model_path,
-            ask_user=_ask_user,
-        )
-    if stage_id is StageId.S04:
-        return s04_merge.run_stage(context=context, ask_user=_ask_user)
-    if stage_id is StageId.S05:
-        return s05_asr_cleanup.run_stage(context=context, ask_user=_ask_user)
-    if stage_id is StageId.S06:
-        return s06_remove_nonlecture.run_stage(context=context, ask_user=_ask_user)
-    if stage_id is StageId.S07:
-        return s07_editorial.run_stage(context=context, ask_user=_ask_user)
-    if stage_id is StageId.S08:
-        return s08_condense.run_stage(context=context, ask_user=_ask_user)
-    if stage_id is StageId.S09:
-        return s09_translate_faithful.run_stage(context=context, ask_user=_ask_user)
-    if stage_id is StageId.S10:
-        return s10_translate_edit.run_stage(context=context, ask_user=_ask_user)
-    raise RuntimeError("unreachable")
-
-
 @app.command("init", help="Create RUN_DIR and prefill pipeline.toml with default settings.")
 def init_run_dir(
     run_dir: Path = typer.Argument(..., file_okay=False, dir_okay=True),
 ) -> None:
-    run_dir.mkdir(parents=True, exist_ok=True)
-    config_path = run_dir / "pipeline.toml"
-    if config_path.exists():
-        raise typer.BadParameter(f"{config_path} already exists.")
-    config_path.write_text(render_default_pipeline_toml(), encoding="utf-8")
+    try:
+        ProjectInitializer().create_project(project_dir=run_dir, project_type=ProjectType.SINGLE)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
     typer.secho(f"initialized {run_dir}", fg=typer.colors.GREEN)
-    typer.echo(f"  - {config_path}")
+    typer.echo(f"  - {run_dir / 'pipeline.toml'}")
 
 
 @app.command("run", help="Run a stage range (s01-s10) in order.")
@@ -348,26 +126,30 @@ def run_pipeline(
     token_cap_input: int | None = typer.Option(None, "--token-cap-input"),
     token_cap_output: int | None = typer.Option(None, "--token-cap-output"),
 ) -> None:
-    context = _stage_context(
-        run_dir=run_dir,
-        on_exists=on_exists,
-        dry_run=dry_run,
-        force=force,
-        verbose=verbose,
-        llm_provider=llm_provider,
-        cost_cap_usd=cost_cap_usd,
-        token_cap_input=token_cap_input,
-        token_cap_output=token_cap_output,
-    )
+    if source_stage is StageId.S01 and in_path is None:
+        raise typer.BadParameter("--in is required when running s01.")
     try:
-        _run_stage_range(
-            context=context,
-            source_stage=source_stage,
-            target_stage=target_stage,
-            in_path=in_path,
-            seconds=seconds,
-            model_path=model_path,
-            command_label="run",
+        execute_run(
+            RunRequest(
+                run_dir=run_dir,
+                in_path=in_path,
+                source_stage=source_stage,
+                target_stage=target_stage,
+                seconds=seconds,
+                model_path=model_path,
+                on_exists=on_exists,
+                dry_run=dry_run,
+                force=force,
+                verbose=verbose,
+                llm_provider=llm_provider,
+                cost_cap_usd=cost_cap_usd,
+                token_cap_input=token_cap_input,
+                token_cap_output=token_cap_output,
+                command_label="run",
+                progress_emitter=_emit_progress,
+                result_emitter=lambda result: _print_result(result, include_status=False),
+                ask_user=_ask_user,
+            )
         )
     except Exception as exc:
         _handle_failure(exc)
@@ -421,60 +203,15 @@ def run_batch(
         help="Per-run cap for concurrent external API calls.",
     ),
 ) -> None:
-    if not runs_root.is_dir():
-        raise typer.BadParameter(f"{runs_root} is not a directory.")
-    pipeline_path = runs_root / "pipeline.toml"
-    if not pipeline_path.is_file():
-        raise typer.BadParameter(f"{pipeline_path} is required for run-batch.")
-    if not in_dir.is_dir():
-        raise typer.BadParameter(f"{in_dir} is not a directory.")
-
     try:
-        audio_files = _discover_audio_files(in_dir)
-        if not audio_files:
-            raise ValueError(f"No supported audio files found under {in_dir}.")
-
-        scheduler_config = _build_batch_scheduler_config(
-            runs_root=runs_root,
-            max_active_runs=max_active_runs,
-            local_slots=local_slots,
-            external_api_slots=external_api_slots,
-            external_api_slots_per_run=external_api_slots_per_run,
-        )
-        if (
-            on_exists is OnExistsMode.ASK
-            and scheduler_config.effective_max_active_runs() > 1
-        ):
-            raise typer.BadParameter(
-                "--on-exists ask is only supported with sequential batch execution. "
-                "Use skip|overwrite|fail or set --max-active-runs 1."
-            )
-
-        mapping = _load_batch_mapping(runs_root)
-        assignments, mapping_changed = _assign_batch_run_dirs(
-            runs_root=runs_root,
-            audio_files=audio_files,
-            mapping=mapping,
-        )
-        if mapping_changed:
-            _save_batch_mapping(runs_root, mapping)
-
-        total = len(audio_files)
-        scheduler = BatchScheduler(config=scheduler_config, progress_emitter=_emit_progress)
-        work_items = [
-            RunWorkItem(
-                audio_path=audio_path,
-                run_dir=assignments[audio_path],
-                run_index=index,
-                total_runs=total,
-            )
-            for index, audio_path in enumerate(audio_files, start=1)
-        ]
-
-        def _worker(work_item: RunWorkItem, coordinator) -> None:
-            context = _stage_context(
-                run_dir=work_item.run_dir,
-                settings_dir=runs_root,
+        failure_rows, total = execute_batch_run(
+            BatchRunRequest(
+                runs_root=runs_root,
+                in_dir=in_dir,
+                source_stage=source_stage,
+                target_stage=target_stage,
+                seconds=seconds,
+                model_path=model_path,
                 on_exists=on_exists,
                 dry_run=dry_run,
                 force=force,
@@ -483,21 +220,16 @@ def run_batch(
                 cost_cap_usd=cost_cap_usd,
                 token_cap_input=token_cap_input,
                 token_cap_output=token_cap_output,
-                execution_coordinator=coordinator,
+                max_active_runs=max_active_runs,
+                local_slots=local_slots,
+                external_api_slots=external_api_slots,
+                external_api_slots_per_run=external_api_slots_per_run,
+                progress_emitter=_emit_progress,
+                result_emitter=lambda result: _print_result(result, include_status=False),
+                ask_user=_ask_user,
             )
-            _run_stage_range(
-                context=context,
-                source_stage=source_stage,
-                target_stage=target_stage,
-                in_path=work_item.audio_path,
-                seconds=seconds,
-                model_path=model_path,
-                command_label="run-batch",
-            )
-
-        failure_rows = scheduler.run(work_items, worker=_worker)
+        )
         failures = [(work_item.audio_path, message) for work_item, message in failure_rows]
-
         succeeded = total - len(failures)
         color = typer.colors.GREEN if not failures else typer.colors.RED
         typer.secho(
@@ -512,8 +244,31 @@ def run_batch(
                     err=True,
                 )
             raise typer.Exit(code=1)
+    except typer.BadParameter:
+        raise
     except Exception as exc:
+        if str(exc).startswith("--on-exists ask is only supported"):
+            raise typer.BadParameter(str(exc)) from exc
+        if str(exc).endswith("is not a directory.") or "is required for run-batch." in str(exc):
+            raise typer.BadParameter(str(exc)) from exc
         _handle_failure(exc)
+
+
+@app.command("gui", help="Start the local sruti web GUI.")
+def run_gui(
+    workspace: Path = typer.Option(Path("./runs"), "--workspace", file_okay=False, dir_okay=True),
+    host: str = typer.Option("127.0.0.1", "--host"),
+    port: int = typer.Option(8420, "--port"),
+) -> None:
+    try:
+        import uvicorn
+    except ModuleNotFoundError as exc:  # pragma: no cover - dependency guard
+        raise typer.BadParameter("uvicorn is not installed. Install GUI dependencies first.") from exc
+
+    from sruti.gui.app import create_app
+
+    app_instance = create_app(workspace_root=workspace.resolve())
+    uvicorn.run(app_instance, host=host, port=port, log_level="info")
 
 
 @app.command("s01-normalize", help="s01: Normalize input audio to deterministic WAV.")

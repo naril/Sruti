@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from sruti.domain.enums import StageId, StageStatus
+from sruti.domain.enums import RunStatus, StageId, StageStatus
 
 
 def utc_now_iso() -> str:
@@ -77,3 +77,31 @@ class StageResult(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
     model_config = {"extra": "forbid", "arbitrary_types_allowed": True}
+
+
+class RunState(BaseModel):
+    run_dir: str
+    input_path: str | None = None
+    from_stage: StageId
+    to_stage: StageId
+    status: RunStatus
+    current_stage: StageId | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+    updated_at: str = Field(default_factory=utc_now_iso)
+    last_message: str | None = None
+    stages: dict[str, StageStatus] = Field(default_factory=dict)
+
+    model_config = {"extra": "forbid"}
+
+
+class RunEvent(BaseModel):
+    ts: str
+    seq: int
+    event: str
+    run_dir: str
+    stage: StageId | None = None
+    status: str | None = None
+    message: str | None = None
+
+    model_config = {"extra": "forbid"}

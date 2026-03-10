@@ -35,3 +35,16 @@ class OnExistsMode(str, Enum):
 class LlmProvider(str, Enum):
     LOCAL = "local"
     OPENAI = "openai"
+
+
+class ProjectType(str, Enum):
+    SINGLE = "single"
+    BATCH = "batch"
+
+
+class RunStatus(str, Enum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    DRY_RUN = "dry_run"
