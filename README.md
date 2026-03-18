@@ -1,4 +1,4 @@
-# sruti
+# Śruti
 
 `sruti` is a modular CLI pipeline that converts lecture audio in English
 into publication-ready Czech text with deterministic stage outputs.
