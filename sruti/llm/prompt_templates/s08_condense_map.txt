@@ -1,0 +1,15 @@
+Create candidate condensed blocks from numbered English lecture paragraphs.
+Keep direct speech tone and terminology.
+
+Rules:
+- Output strict JSON object with key "blocks".
+- Each block item must have:
+  {"from_paragraph": <int>, "to_paragraph": <int>, "title": "<short>", "body": "<condensed direct speech>"}
+- Keep chronology and do not invent facts.
+- Lightly compress meaning; do not over-summarize.
+- Allow slight overlap between neighboring blocks if needed for continuity.
+- Use 2-5 sentences per block body.
+- No markdown.
+
+Paragraphs:
+{{paragraph_lines}}

@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}sruti GUI | {{ project.name }}{% endblock %}
+{% block page_title %}{{ project.name }}{% endblock %}
+{% block lede %}{{ project.project_type.value }} project na {{ project.path }}{% endblock %}
+{% block content %}
+  <section class="subnav">
+    <a href="/projects/{{ project.name }}">Overview</a>
+    <a href="/projects/{{ project.name }}/settings">Pipeline</a>
+    <a href="/projects/{{ project.name }}/prompts">Prompts</a>
+  </section>
+  {% if request.query_params.get("started") %}
+    <p class="flash success">Execution started.</p>
+  {% endif %}
+  {% if request.query_params.get("error") %}
+    <p class="flash error">{{ request.query_params.get("error") }}</p>
+  {% endif %}
+  <section class="panel">
+    <div id="project-status" data-poll-url="/projects/{{ project.name }}/status" data-poll-interval="1000">
+      {% with status=status_fragment.status, summary=status_fragment.summary, project=project, last_updated=status_fragment.last_updated, is_running=status_fragment.is_running %}
+        {% include "partials/project_status.html" %}
+      {% endwith %}
+    </div>
+  </section>
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Run</h2>
+      <span class="muted">{% if project.project_type.value == "single" %}input {{ project.gui_settings.input_path or "not configured" }}{% else %}input dir {{ project.gui_settings.input_dir or "not configured" }}{% endif %}</span>
+    </div>
+    <form method="post" action="/projects/{{ project.name }}/execute" class="grid-form">
+      <label><span>From</span><select name="from_stage">{% for item in StageId %}<option value="{{ item.value }}">{{ item.value }}</option>{% endfor %}</select></label>
+      <label><span>To</span><select name="to_stage">{% for item in StageId %}<option value="{{ item.value }}" {% if item.value == "s10" %}selected{% endif %}>{{ item.value }}</option>{% endfor %}</select></label>
+      <label><span>On exists</span><select name="on_exists"><option value="overwrite">overwrite</option><option value="skip">skip</option><option value="fail">fail</option></select></label>
+      <label><span>LLM provider override</span><select name="llm_provider"><option value="">pipeline default</option><option value="local">local</option><option value="openai">openai</option></select></label>
+      <label><span>Cost cap USD</span><input name="cost_cap_usd" placeholder="optional" /></label>
+      <label><span>Token cap in</span><input name="token_cap_input" placeholder="optional" /></label>
+      <label><span>Token cap out</span><input name="token_cap_output" placeholder="optional" /></label>
+      <label class="toggle"><input type="checkbox" name="dry_run" /><span>dry_run</span></label>
+      <label class="toggle"><input type="checkbox" name="force" /><span>force</span></label>
+      <label class="toggle"><input type="checkbox" name="verbose" /><span>verbose</span></label>
+      <button class="button" type="submit">Start execution</button>
+    </form>
+  </section>
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Stages</h2>
+      {% if project.final_output %}
+        <a class="mini-link" href="/projects/{{ project.name }}/artifact?path={{ project.final_output.relative_to(project.path) }}">open final output</a>
+      {% endif %}
+    </div>
+    <div class="stage-grid">
+      {% for stage in stages %}
+        <article class="stage-card">
+          <div class="card-top">
+            <span class="chip">{{ stage.id.value }}</span>
+            {% if stage.manifest %}
+              <span class="chip outline">{{ stage.manifest.status.value }}</span>
+            {% else %}
+              <span class="chip outline">not-run</span>
+            {% endif %}
+          </div>
+          <h3><a href="/projects/{{ project.name }}/stages/{{ stage.id.value }}">{{ stage.dir.name }}</a></h3>
+          {% if stage.manifest %}
+            <p class="muted">{{ stage.manifest.started_at }}</p>
+          {% else %}
+            <p class="muted">No manifest yet.</p>
+          {% endif %}
+          <p class="muted">{{ stage.artifacts|length }} artifacts</p>
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+  {% if batch_runs %}
+    <section class="panel">
+      <h2>Batch runs</h2>
+      <div class="stage-grid">
+        {% for row in batch_runs %}
+          <article class="stage-card">
+            <div class="card-top">
+              <a class="chip" href="/projects/{{ project.name }}/runs/{{ row.name }}">{{ row.name }}</a>
+              <span class="chip outline">{{ row.status }}</span>
+            </div>
+            <p class="muted">{{ row.current_stage or "idle" }}</p>
+            <p class="muted">{{ row.last_message or "no message" }}</p>
+            <p class="muted">{{ row.updated_at or "n/a" }}</p>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+{% endblock %}

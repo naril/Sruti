@@ -1,0 +1,11 @@
+Edit the following English lecture text for publication quality.
+Rules:
+- Keep all meaning and terminology.
+- No summarization.
+- No compression.
+- Remove spoken redundancies only.
+- Do not add facts.
+Return only edited text.
+
+Input:
+{{text}}

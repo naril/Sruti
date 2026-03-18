@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}sruti GUI | {{ project.name }} prompts{% endblock %}
+{% block page_title %}{{ project.name }} Prompt Templates{% endblock %}
+{% block lede %}Lokální override promptů s validací placeholderů proti katalogu stages.{% endblock %}
+{% block content %}
+  <section class="subnav">
+    <a href="/projects/{{ project.name }}">Overview</a>
+    <a href="/projects/{{ project.name }}/settings">Pipeline</a>
+    <a href="/projects/{{ project.name }}/prompts">Prompts</a>
+  </section>
+  {% if request.query_params.get("saved") %}
+    <p class="flash success">Prompt saved.</p>
+  {% endif %}
+  {% if request.query_params.get("localized") %}
+    <p class="flash success">Local prompt overrides created.</p>
+  {% endif %}
+  {% if request.query_params.get("warning") %}
+    <p class="flash warning">{{ request.query_params.get("warning") }}</p>
+  {% endif %}
+  {% if request.query_params.get("error") %}
+    <p class="flash error">{{ request.query_params.get("error") }}</p>
+  {% endif %}
+  {% if not prompts_dir %}
+    <section class="panel">
+      <form method="post" action="/projects/{{ project.name }}/prompts/s05_cleanup.txt">
+        <input type="hidden" name="action" value="create-local" />
+        <button class="button" type="submit">Create local prompt copy</button>
+      </form>
+    </section>
+  {% endif %}
+  {% for prompt in prompt_rows %}
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>{{ prompt.name }}</h2>
+          <p class="muted">{{ prompt.spec.stage_label }}</p>
+        </div>
+        {% if prompt.is_local %}
+          <span class="chip">local</span>
+        {% else %}
+          <span class="chip outline">built-in fallback</span>
+        {% endif %}
+      </div>
+      <p class="muted">Allowed placeholders: {{ prompt.spec.allowed_placeholders|join(", ") }}</p>
+      <form method="post" action="/projects/{{ project.name }}/prompts/{{ prompt.name }}" class="stack-form">
+        <textarea name="content" rows="18">{{ prompt.content }}</textarea>
+        <button class="button" type="submit">Save {{ prompt.name }}</button>
+      </form>
+    </section>
+  {% endfor %}
+{% endblock %}

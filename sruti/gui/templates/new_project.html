@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}sruti GUI | New Project{% endblock %}
+{% block page_title %}Create Project{% endblock %}
+{% block lede %}Vytvoří nový single nebo batch projekt a založí lokální prompt overrides.{% endblock %}
+{% block content %}
+  <section class="panel form-panel">
+    <form method="post" action="/projects" class="stack-form">
+      <label>
+        <span>Name</span>
+        <input name="name" required placeholder="lecture-a" />
+      </label>
+      <label>
+        <span>Project type</span>
+        <select name="project_type">
+          <option value="single">single</option>
+          <option value="batch">batch</option>
+        </select>
+      </label>
+      <label>
+        <span>Single input path</span>
+        <input name="input_path" placeholder="/absolute/path/lecture.wav" />
+      </label>
+      <label>
+        <span>Batch input directory</span>
+        <input name="input_dir" placeholder="/absolute/path/audio-folder" />
+      </label>
+      <button class="button" type="submit">Create project</button>
+    </form>
+  </section>
+{% endblock %}

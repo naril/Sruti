@@ -1,0 +1,252 @@
+:root {
+  --bg: #f5f0e6;
+  --panel: rgba(255, 252, 245, 0.9);
+  --ink: #16251d;
+  --muted: #5d6a61;
+  --line: rgba(22, 37, 29, 0.12);
+  --accent: #1f6b47;
+  --accent-soft: #d8eadf;
+  --warn: #d16b3d;
+  --error: #b43935;
+  --shadow: 0 18px 60px rgba(18, 28, 22, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  font-family: "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
+  background:
+    radial-gradient(circle at top left, rgba(31, 107, 71, 0.15), transparent 28rem),
+    linear-gradient(180deg, #fffaf2 0%, var(--bg) 100%);
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.page-shell {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 32px 20px 80px;
+}
+
+.hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: flex-start;
+  margin-bottom: 28px;
+}
+
+.hero h1 {
+  margin: 8px 0 10px;
+  font-family: "Charter", "Iowan Old Style", serif;
+  font-size: clamp(2rem, 5vw, 3.6rem);
+  line-height: 0.95;
+}
+
+.eyebrow {
+  font-size: 0.82rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.lede,
+.muted,
+.empty {
+  color: var(--muted);
+}
+
+.topnav,
+.subnav {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.panel {
+  margin-bottom: 22px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  backdrop-filter: blur(18px);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+}
+
+.panel-head,
+.card-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+}
+
+.stats,
+.project-grid,
+.stage-grid,
+.status-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.stats {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.project-grid,
+.stage-grid {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.status-grid {
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+.project-card,
+.stage-card,
+.artifact-card,
+.status-card {
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.chip.outline {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.button,
+button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 16px;
+  border-radius: 12px;
+  border: 0;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.button.secondary {
+  background: #304f3d;
+}
+
+.stack-form,
+.settings-group {
+  display: grid;
+  gap: 16px;
+}
+
+.grid-form {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+label {
+  display: grid;
+  gap: 8px;
+  font-size: 0.93rem;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--ink);
+  font: inherit;
+}
+
+textarea {
+  min-height: 220px;
+  resize: vertical;
+  font-family: "SF Mono", "IBM Plex Mono", monospace;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 30px;
+}
+
+.toggle input {
+  width: auto;
+}
+
+.flash {
+  padding: 12px 14px;
+  border-radius: 12px;
+  margin-bottom: 18px;
+}
+
+.flash.success {
+  background: #e7f5eb;
+  color: var(--accent);
+}
+
+.flash.warning {
+  background: #fff0df;
+  color: var(--warn);
+}
+
+.flash.error {
+  background: #fde8e7;
+  color: var(--error);
+}
+
+.code-block {
+  overflow: auto;
+  padding: 14px;
+  border-radius: 14px;
+  background: #16251d;
+  color: #f3f7f4;
+  font-family: "SF Mono", "IBM Plex Mono", monospace;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.artifact-frame {
+  width: 100%;
+  min-height: 520px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+}
+
+audio {
+  width: 100%;
+}
+
+@media (max-width: 720px) {
+  .hero {
+    flex-direction: column;
+  }
+}

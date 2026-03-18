@@ -1,0 +1,24 @@
+Classify each span as KEEP or REMOVE.
+Decision policy:
+- KEEP spans that contain doctrine, lineage context, definitions, terminology, or generally applicable practice explanations.
+- KEEP spans that explain why/how a method works, even if they are conversational.
+- REMOVE spans that are primarily non-lecture content such as audience chatter, technical glitches, or logistics.
+- REMOVE spans that are primarily situational coaching directed to a specific participant in the room
+  (e.g., "yes", "lower your shoulders", "relax", "continue", "breathe like this") when that instruction
+  depends on seeing/adjusting that specific person and has no transferable explanation.
+- If a span mixes individual correction and a generally transferable explanation, choose KEEP.
+Do not rewrite any text.
+Return strict JSON array with objects:
+{"span_id": <int>, "action": "KEEP|REMOVE", "label": "<category>", "reason": "<short>"}
+
+Examples:
+- REMOVE: brief one-to-one correction without broader explanation.
+- KEEP: instruction followed by a general explanation relevant to all readers.
+
+Suggested labels: teaching, theory, terminology, practice_instruction, individual_correction,
+housekeeping, technical_issue, social_chatter, off_topic
+
+No markdown.
+
+Spans:
+{{span_lines}}

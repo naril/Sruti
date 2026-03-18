@@ -1,1 +1,22 @@
-"""s06_remove_nonlecture.py"""
+from __future__ import annotations
+
+from collections.abc import Callable
+
+from sruti.application.context import StageContext
+from sruti.application.stages.s06_remove_nonlecture_uc import S06RemoveNonLectureUseCase
+from sruti.domain.models import StageResult
+from sruti.infrastructure.fs_repository import FileSystemManifestStore
+from sruti.infrastructure.llm_factory import create_llm_client
+
+
+def run_stage(
+    *,
+    context: StageContext,
+    ask_user: Callable[[str], bool] | None = None,
+) -> StageResult:
+    use_case = S06RemoveNonLectureUseCase(
+        llm_client_factory=lambda: create_llm_client(context.settings),
+        manifest_store=FileSystemManifestStore(),
+        ask_user=ask_user,
+    )
+    return use_case.run(context)
