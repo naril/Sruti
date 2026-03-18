@@ -19,6 +19,60 @@ cd /path/to/sruti
 python3 -m pip install -e .
 ```
 
+## Web Frontend
+
+`sruti` also includes a local FastAPI web UI for managing projects and running the pipeline
+without typing full CLI commands.
+
+Start the GUI:
+
+```bash
+sruti gui --workspace ./runs --host 127.0.0.1 --port 8420
+```
+
+Then open [http://127.0.0.1:8420](http://127.0.0.1:8420) in your browser.
+
+GUI command options:
+
+- `--workspace`: root directory scanned for projects. Default is `./runs`.
+- `--host`: bind address. Default is `127.0.0.1`.
+- `--port`: HTTP port. Default is `8420`.
+
+Workspace model:
+
+- One subdirectory under `--workspace` corresponds to one GUI project.
+- A project is recognized by `pipeline.toml`.
+- GUI-created projects also store `[gui]` metadata in `pipeline.toml` so the UI can remember
+  whether the project is `single` or `batch` and which input path or input directory it should use.
+
+Typical GUI workflow:
+
+1. Start `sruti gui`.
+2. Create a `single` project for one audio file or a `batch` project for an input directory.
+3. Review `Pipeline` settings and optional prompt overrides.
+4. Start execution for any continuous stage range, for example `s01 -> s10`.
+5. Inspect stage manifests and artifacts directly in the browser.
+
+Main screens:
+
+- `Dashboard`: lists all projects under the workspace and auto-refreshes active jobs.
+- `Create Project`: creates a new single or batch project, writes `pipeline.toml`, and creates
+  local prompt overrides in `prompts/`.
+- `Overview`: shows current run or batch status, lets you start execution, and links to stage detail
+  pages and final output when available.
+- `Pipeline`: provides both a structured editor for the `[sruti]` section and a raw editor for the
+  full `pipeline.toml`.
+- `Prompts`: edits stage prompt templates, shows whether a file is local or built-in fallback, and
+  validates placeholders before saving.
+- `Stage Detail`: shows `manifest.json` and previews text, HTML, and audio artifacts for one stage.
+
+Execution controls available in the GUI mirror the CLI orchestration options:
+
+- stage range: `from` / `to`
+- overwrite behavior: `overwrite`, `skip`, `fail`
+- optional overrides: `llm_provider`, `cost_cap_usd`, `token_cap_input`, `token_cap_output`
+- execution flags: `dry_run`, `force`, `verbose`
+
 ## CLI
 
 Bootstrap + full pipeline:
